@@ -278,7 +278,7 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX11: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
+/* IONE_BK7238_REGFIX12: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 	(void)rx;
 	(void)reg;
@@ -319,10 +319,10 @@ static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *offOut, int *l
 		return best;
 	}
 	if (offOut)
-		*offOut = bestOff;
+		*offOut = -1;
 	if (leOut)
-		*leOut = bestLe;
-	return fallback;
+		*leOut = -1;
+	return 0; /* 유효 UFREQ 후보 없음 — 0xFF80 garbage fallback 금지 */
 }
 #endif
 
@@ -355,7 +355,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX11 */
+	/* IONE_BK7238_REGFIX12 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -1135,7 +1135,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX11: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX12: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
@@ -1177,6 +1177,11 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 
 	HLW8112_ScaleVoltage(data->v_rms, &voltage);
 	HLW8112_ScaleFrequency(data->freq, &frequency);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	/* AC 미인가(<50V) 시 UFREQ 무시 — SPI idle 바이트가 6.82Hz로 고정되는 문제 방지 */
+	if (voltage < 50000)
+		frequency = 0;
+#endif
 
   	HLW8112_ScaleCurrent(HLW8112_CHANNEL_A, data->ia_rms, &current_a);
   	HLW8112_ScaleCurrent(HLW8112_CHANNEL_B, data->ib_rms, &current_b);

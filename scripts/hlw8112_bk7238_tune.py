@@ -10,6 +10,9 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
+if "IONE_BK7238_REGFIX12" in text:
+    print("Patch v12 already in tree")
+    sys.exit(0)
 if "IONE_BK7238_REGFIX11" in text:
     print("Patch v11 already in tree")
     sys.exit(0)
