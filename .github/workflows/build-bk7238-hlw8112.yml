@@ -35,6 +35,7 @@ on:
       - 'scripts/hlw8112_bk7238_tune15.py'
       - 'scripts/hlw8112_bk7238_tune16.py'
       - 'scripts/hlw8112_bk7238_tune17.py'
+      - 'scripts/hlw8112_bk7238_tune18.py'
 
 
 
@@ -90,9 +91,11 @@ jobs:
 
           python3 scripts/hlw8112_bk7238_tune17.py
 
+          python3 scripts/hlw8112_bk7238_tune18.py
+
           grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
 
-          grep -q "IONE_BK7238_REGFIX17" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX18" src/driver/drv_hlw8112.c
 
           grep -q "DEFAULT_RES_KU.*1.5f" src/driver/drv_hlw8112.h
 
@@ -104,7 +107,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix17"
+          APP_VER="${SHA}_hlw8112_spifix18"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 

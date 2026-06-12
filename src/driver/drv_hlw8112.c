@@ -6,6 +6,7 @@
 
 #include "drv_hlw8112.h"
 #include "../obk_config.h"
+#include "../new_common.h"
 
 #if ENABLE_DRIVER_HLW8112SPI
 
@@ -277,8 +278,15 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 #pragma region read
 
 
+
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX17: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
+/* IONE_BK7238_REGFIX18: 연속 read 시 2번째부터 MISO=0xFF — HLW8112 read 간격 */
+static void HLW8112_BK7238_RegGap(void) {
+	rtos_delay_milliseconds(5);
+}
+#endif
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* IONE_BK7238_REGFIX18: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 	(void)rx;
 	(void)reg;
@@ -410,7 +418,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX17 */
+	/* IONE_BK7238_REGFIX18 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -437,6 +445,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	if (reg == HLW8112_REG_UFREQ && size == 2)
 		HLW8112_LogUfreqRxOnce(rx, value, off, ufreqLe);
+	HLW8112_BK7238_RegGap();
 #endif
   	return result;
 }
@@ -493,6 +502,9 @@ int HLW8112_WriteRegister(uint8_t reg, uint8_t *data, uint8_t size) {
   	}
   	
   	int result = HLW8112_SPI_WriteBytes(tx, size + 1);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_BK7238_RegGap();
+#endif
   	//TODO: verify written bytes register
   	return result;
 }
@@ -810,6 +822,7 @@ static commandResult_t HLW8112_CmdSpiRegDbg(const void *context, const char *cmd
 		uint8_t rx[5] = { 0 };
 		tx[0] = tbl[i].reg & 0x7F;
 		HLW8112_SPI_Transact(tx, 1, rx, 5);
+		HLW8112_BK7238_RegGap();
 		ADDLOG_INFO(LOG_FEATURE_CMD,
 			"SPI %s reg=%02X rx=%02X %02X %02X %02X %02X off0=%u off1=%u",
 			tbl[i].nm, tbl[i].reg, rx[0], rx[1], rx[2], rx[3], rx[4],
@@ -1270,7 +1283,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX17: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX18: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
