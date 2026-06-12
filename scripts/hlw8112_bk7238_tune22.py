@@ -9,7 +9,7 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_REGFIX22" in text:
+if "IONE_BK7238_REGFIX22" in text or "IONE_BK7238_REGFIX23" in text:
     print("Patch v22 already applied")
     sys.exit(0)
 

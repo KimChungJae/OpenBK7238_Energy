@@ -438,7 +438,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX22 */
+	/* IONE_BK7238_REGFIX23 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -1281,15 +1281,28 @@ if (regValue == 0) {
 	}
 }
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* IONE_BK7238_REGFIX23: 32-bit 전력 signed — bit23은 부호, INVALID 아님 (0W 고정 버그) */
+static int32_t HLW8112_BK7238_ParsePower32(uint32_t raw) {
+	if ((raw & 0x00FFFFFF) == 0x00FFFFFF || raw == 0xFFFFFFFF)
+		return 0;
+	return (int32_t)raw;
+}
+#endif
+
 void HLW8112_ScalePower(HLW8112_Channel_t channel, uint32_t regValue, int32_t* value){
 	if (regValue == 0) {
 		*value = 0;
 	}
-	else if (regValue & HLW8112_INVALID_REGVALUE) {
+	else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF) {
 		*value = 0;
 	}
 	else {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+		int32_t rv = HLW8112_BK7238_ParsePower32(regValue);
+#else
 		int32_t rv = (int32_t)regValue;
+#endif
 		double scale = channel == HLW8112_CHANNEL_B ? device.ScaleFactor.b.p : device.ScaleFactor.a.p;
 		double v = rv*scale;
 		*value = (int32_t)v;
@@ -1316,11 +1329,15 @@ void HLW8112_ScaleAparentPower(HLW8112_Channel_t channel, uint32_t regValue, int
 	if (regValue == 0) {
 		*value = 0;
 	}
-	else if (regValue & HLW8112_INVALID_REGVALUE) {
+	else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF) {
 		*value = 0;
 	}
 	else {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+		int32_t rv = HLW8112_BK7238_ParsePower32(regValue);
+#else
 		int32_t rv = (int32_t)regValue;
+#endif
 		double scale = channel == HLW8112_CHANNEL_B ? device.ScaleFactor.b.ap : device.ScaleFactor.a.ap;
 		double v = rv*scale;
 		*value = (int32_t)v;
