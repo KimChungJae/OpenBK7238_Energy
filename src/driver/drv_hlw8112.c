@@ -55,7 +55,7 @@ static HLW8112_UpdateData_t last_update_data = {
 };	// last scaled values for ext systems 
 
 static int stat_save_count_down = HLW8112_SAVE_COUNTER;
-int GPIO_HLW_SCSN = 9;
+int GPIO_HLW_SCSN = 15; /* IONE PM01_A003 CS=P15 */
 
 #pragma region HLW8112 utils
 
@@ -97,6 +97,9 @@ static int32_t HLW8112_24BitTo32Bit(uint32_t value) {
 
 /* IONE_BK7238_REGFIX29: SPI 단일 접근 — RunEverySecond vs spireg/HTTP 동시 접근 시 hang/reboot */
 static SemaphoreHandle_t g_hlw8112_spi_mtx;
+/* IONE_BK7238_REGFIX30: spireg 중 1Hz 측정·MQTT·채널로그 일시 중지 (Command Tool 다운 방지) */
+static volatile uint8_t g_hlw8112_diag_hold;
+static uint8_t g_hlw8112_spi_fast_gap;
 
 static int HLW8112_SpiLock(void) {
 	if (g_hlw8112_spi_mtx == 0)
@@ -107,6 +110,17 @@ static int HLW8112_SpiLock(void) {
 static void HLW8112_SpiUnlock(void) {
 	if (g_hlw8112_spi_mtx)
 		xSemaphoreGive(g_hlw8112_spi_mtx);
+}
+
+static void HLW8112_DiagBegin(void) {
+	g_hlw8112_diag_hold = 1;
+	g_hlw8112_spi_fast_gap = 1;
+	rtos_delay_milliseconds(50);
+}
+
+static void HLW8112_DiagEnd(void) {
+	g_hlw8112_spi_fast_gap = 0;
+	g_hlw8112_diag_hold = 0;
 }
 
 /* IONE_BK7238_SPI_FIX5 — BK7238 DMA SPI 미동작, FIFO 폴링 + 3-wire write-then-read */
@@ -313,7 +327,7 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 /* IONE_BK7238_REGFIX19: HLW8112 SPI 프레임 간 CS-high 유지 (10ms) */
 static void HLW8112_BK7238_RegGap(void) {
-	rtos_delay_milliseconds(10);
+	rtos_delay_milliseconds(g_hlw8112_spi_fast_gap ? 2 : 10);
 }
 
 static int HLW8112_BK7238_RxAllFF(const uint8_t *rx) {
@@ -631,7 +645,7 @@ void HLW8112_Restore_Stats(void) {
 	energy_acc_a.Export = 0;
 	energy_acc_a.Import = 0;
 	energy_acc_b.Export = 0;
-	energy_acc_a.Import = 0;
+	energy_acc_b.Import = 0;
 	HAL_FlashVars_GetEnergy(&energy_acc_a, ENERGY_CHANNEL_A);
 	HAL_FlashVars_GetEnergy(&energy_acc_b, ENERGY_CHANNEL_B);
 }
@@ -687,6 +701,9 @@ static commandResult_t HLW8112_SetClock(const void *context, const char *cmd, co
 	device.CLKI = value;
 	//CHANNEL_Set(HLW8112_Channel_Clk, value, 0 );
 	CFG_SetPowerMeasurementCalibrationInteger(CFG_OBK_CLK,value);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_UpdateCoeff();
+#endif
 	HLW8112_compute_scale_factor();
 	return CMD_RES_OK;
 }
@@ -706,6 +723,9 @@ static commandResult_t HLW8112_SetResistorGain(const void *context, const char *
 	CFG_SetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KU, device.ResistorCoeff.KU );
 	CFG_SetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIA, device.ResistorCoeff.KIA );
 	CFG_SetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIB, device.ResistorCoeff.KIB );
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_UpdateCoeff();
+#endif
 	HLW8112_compute_scale_factor();
 	return CMD_RES_OK;
 }
@@ -840,45 +860,48 @@ static uint32_t HLW8112_BK7238_ParseAt(const uint8_t *rx, int off, uint8_t size)
 }
 
 static commandResult_t HLW8112_CmdSpiRegDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
-	/* IONE_BK7238_REGFIX29: 진단 전용 — UpdateCoeff(추가 SPI 9회) 제거, 연속 호출 쿨다운 */
+	/* IONE_BK7238_REGFIX30: Command Tool 다운 방지 — 1Hz 측정 중지 + 최소 레지스터만 */
 	static const struct { uint8_t reg; uint8_t sz; const char *nm; } tbl[] = {
 		{ HLW8112_REG_RMSU, 3, "RMSU" },
-		{ HLW8112_REG_UFREQ, 2, "UFREQ" },
 		{ HLW8112_REG_RMSIA, 3, "RMSIA" },
 		{ HLW8112_REG_RMSIB, 3, "RMSIB" },
-		{ HLW8112_REG_POWER_PA, 4, "POWER_PA" },
 		{ HLW8112_REG_RMSUC, 2, "RMSUC" },
 	};
 	static uint32_t s_spireg_last_ms;
 	uint8_t tx[1];
 	int i;
 	uint32_t now;
+	commandResult_t res = CMD_RES_OK;
 	(void)context; (void)cmd; (void)args; (void)cmdFlags;
 	now = (uint32_t)rtos_get_time();
-	if (s_spireg_last_ms != 0 && (now - s_spireg_last_ms) < 3000U) {
-		ADDLOG_WARN(LOG_FEATURE_CMD, "HLW8112_spireg: 3초 후 다시 실행 (웹/와치독 hang 방지)");
+	if (s_spireg_last_ms != 0 && (now - s_spireg_last_ms) < 5000U) {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "HLW8112_spireg: 5초 후 다시 (Web Console 권장, Command Tool 금지)");
 		return CMD_RES_BAD_ARGUMENT;
 	}
 	s_spireg_last_ms = now;
+	HLW8112_DiagBegin();
 	for (i = 0; i < (int)(sizeof(tbl) / sizeof(tbl[0])); i++) {
 		uint8_t rx[5] = { 0 };
 		tx[0] = tbl[i].reg & 0x7F;
 		if (HLW8112_SPI_Transact(tx, 1, rx, 5) < 0) {
 			ADDLOG_ERROR(LOG_FEATURE_CMD, "HLW8112_spireg: SPI fail at %s", tbl[i].nm);
-			return CMD_RES_ERROR;
+			res = CMD_RES_ERROR;
+			break;
 		}
 		ADDLOG_INFO(LOG_FEATURE_CMD,
-			"SPI %s reg=%02X rx=%02X %02X %02X %02X %02X off0=%u off1=%u",
+			"SPI %s reg=%02X rx=%02X %02X %02X %02X off0=%u",
 			tbl[i].nm, tbl[i].reg, rx[0], rx[1], rx[2], rx[3], rx[4],
-			(unsigned)HLW8112_BK7238_ParseAt(rx, 0, tbl[i].sz),
-			(unsigned)HLW8112_BK7238_ParseAt(rx, 1, tbl[i].sz));
+			(unsigned)HLW8112_BK7238_ParseAt(rx, 0, tbl[i].sz));
 	}
-	ADDLOG_INFO(LOG_FEATURE_CMD,
-		"scale(cached) v=%.6f ia=%.6f ib=%.6f pa=%.6f pb=%.6f frq=%.1f CLKI=%u",
-		device.ScaleFactor.v_rms, device.ScaleFactor.a.i, device.ScaleFactor.b.i,
-		device.ScaleFactor.a.p, device.ScaleFactor.b.p, device.ScaleFactor.freq,
-		(unsigned)device.CLKI);
-	return CMD_RES_OK;
+	if (res == CMD_RES_OK) {
+		ADDLOG_INFO(LOG_FEATURE_CMD,
+			"scale(cached) v=%.6f ia=%.6f ib=%.6f KU=%.2f KIA=%.2f KIB=%.2f CLKI=%u",
+			device.ScaleFactor.v_rms, device.ScaleFactor.a.i, device.ScaleFactor.b.i,
+			device.ResistorCoeff.KU, device.ResistorCoeff.KIA, device.ResistorCoeff.KIB,
+			(unsigned)device.CLKI);
+	}
+	HLW8112_DiagEnd();
+	return res;
 }
 
 static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
@@ -889,6 +912,7 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 	double frqScale;
 	uint32_t ch1;
 	(void)context; (void)cmd; (void)args; (void)cmdFlags;
+	HLW8112_DiagBegin();
 	HLW8112_SPI_Transact(tx, 1, rx, 5);
 	if (device.CLKI > 0)
 		frqScale = (double)device.CLKI * 100.0 / 8.0;
@@ -907,6 +931,7 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 		"UFREQ pick rx=%02X %02X %02X %02X %02X CLKI=%u off=%d le=%d reg=%u Ch1~%u V=%d",
 		rx[0], rx[1], rx[2], rx[3], rx[4], (unsigned)device.CLKI, off, le,
 		(unsigned)parsed, (unsigned)ch1, (int)last_update_data.v_rms);
+	HLW8112_DiagEnd();
 	return CMD_RES_OK;
 }
 #endif
@@ -1546,6 +1571,11 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 
 void HLW8112_RunEverySecond(void) {
 	HLW8112_Data_t data;
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (g_hlw8112_diag_hold)
+		return;
+#endif
 
 	HLW8112_ReadRegister24(HLW8112_REG_RMSU, &data.v_rms);
 	HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data.freq);

@@ -1449,9 +1449,12 @@ void Main_Init_BeforeDelay_Unsafe(bool bAutoRunScripts) {
 			{
 				DRV_StartDriver("GN6932");
 			}
+#if !defined(PLATFORM_BK7238) || !defined(PLATFORM_BEKEN_NEW)
 			if (PIN_FindPinIndexForRole(IOR_HLW8112_SCSN, -1) != -1) {
 				DRV_StartDriver("HLW8112SPI");
 			}
+#endif
+			/* IONE PM01: HLW8112는 Startup에서 지연 기동 (초기화 직후 B채널 0·spireg 충돌 방지) */
 //			if ((PIN_FindPinIndexForRole(IOR_TM1638_CLK, -1) != -1) &&
 //				(PIN_FindPinIndexForRole(IOR_TM1638_DAT, -1) != -1) &&
 //				(PIN_FindPinIndexForRole(IOR_TM1638_STB, -1) != -1))
