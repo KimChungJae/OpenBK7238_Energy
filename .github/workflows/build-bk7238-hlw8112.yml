@@ -9,6 +9,7 @@ on:
       - '.github/workflows/build-bk7238-hlw8112.yml'
       - 'scripts/hlw8112_bk7238_spi.py'
       - 'scripts/hlw8112_bk7238_tune.py'
+      - 'scripts/hlw8112_bk7238_tune7.py'
 
 env:
   APP_NAME: OpenBK7231T_App
@@ -25,14 +26,15 @@ jobs:
         run: |
           python3 scripts/hlw8112_bk7238_spi.py
           python3 scripts/hlw8112_bk7238_tune.py
+          python3 scripts/hlw8112_bk7238_tune7.py
           grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX6" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX7" src/driver/drv_hlw8112.c
           grep -q "DEFAULT_RES_KU.*1.5f" src/driver/drv_hlw8112.h
 
       - name: Build OpenBK7238 hlw8112
         run: |
           SHA="$(git rev-parse --short=12 HEAD)"
-          APP_VER="${SHA}_hlw8112_spifix6"
+          APP_VER="${SHA}_hlw8112_spifix7"
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
           mkdir -p artifact
           cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/

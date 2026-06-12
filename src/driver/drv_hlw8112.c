@@ -276,6 +276,32 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 
 #pragma region read
 
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* IONE_BK7238_REGFIX7: 3-wire UFREQ 등 — 선행 0xFF 연속 스킵 (24-bit 전압은 rx[0] 유지) */
+static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t size) {
+	int off = 0;
+	if (size == 3)
+		return 0;
+	while (off + size <= 5 && rx[off] == 0xFF)
+		off++;
+	return off;
+}
+#endif
+
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+static void HLW8112_LogUfreqRxOnce(const uint8_t *rx, uint32_t parsed, int off) {
+	static uint8_t done;
+	if (done)
+		return;
+	done = 1;
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
+		"UFREQ rx %02X %02X %02X %02X %02X off=%d val=%u",
+		rx[0], rx[1], rx[2], rx[3], rx[4], off, (unsigned)parsed);
+}
+#endif
+
 int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	uint8_t tx[1] = {0xFF};
   	uint8_t rx[5] = {0};
@@ -288,8 +314,12 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX6: 3-wire read 시 선행 0xFF 더미 — 8/16/32-bit는 rx[1]부터 */
-  	int off = (size == 3) ? 0 : 1;
+	/* IONE_BK7238_REGFIX7 */
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+  	int off = HLW8112_BK7238_RxOffset(rx, size);
+#else
+  	int off = 0;
+#endif
   	uint32_t value = 0x0;
   	if (size == 4) {
     	value = ((uint32_t)rx[off] << 24) | ((uint32_t)rx[off + 1] << 16)
@@ -302,6 +332,10 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
     	value = ((uint32_t)rx[off]);
   	}
   	*valueResult = value;
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (reg == HLW8112_REG_UFREQ && size == 2)
+		HLW8112_LogUfreqRxOnce(rx, value, off);
+#endif
   	return result;
 }
 
@@ -1054,7 +1088,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX6: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX7: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
