@@ -24,7 +24,7 @@ if "obktime.h" not in text:
 mqtt_fn = """
 /* IONE_BK7238_REGFIX27: STM32/Stream GUI — tele/Energy_Meta/SENSOR (Tasmota ENERGY JSON) */
 #ifndef IONE_MQTT_ENERGY_TOPIC
-#define IONE_MQTT_ENERGY_TOPIC "Energy_Meta"
+#define IONE_MQTT_ENERGY_TOPIC "Energy_Meta_2CH"
 #endif
 
 static void HLW8112_IoneMqttPublishEnergy(void) {

@@ -1376,9 +1376,9 @@ static float HLW8112_RoundChPF(int32_t pf) {
 	return roundf(pf / 1000.0f * 10.0f) * 100.0f;
 }
 
-/* IONE_BK7238_REGFIX27: STM32/Stream GUI — tele/Energy_Meta/SENSOR (Tasmota ENERGY JSON) */
+/* IONE_BK7238_REGFIX27: tele/Energy_Meta_2CH/SENSOR (2CH 미터 전용, STM32 Energy_Meta와 분리) */
 #ifndef IONE_MQTT_ENERGY_TOPIC
-#define IONE_MQTT_ENERGY_TOPIC "Energy_Meta"
+#define IONE_MQTT_ENERGY_TOPIC "Energy_Meta_2CH"
 #endif
 
 static void HLW8112_IoneMqttPublishEnergy(void) {
