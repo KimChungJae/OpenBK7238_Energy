@@ -37,6 +37,7 @@ on:
       - 'scripts/hlw8112_bk7238_tune17.py'
       - 'scripts/hlw8112_bk7238_tune18.py'
       - 'scripts/hlw8112_bk7238_tune19.py'
+      - 'src/driver/drv_hlw8112.c'
 
 
 
