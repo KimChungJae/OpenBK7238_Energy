@@ -102,6 +102,9 @@ static volatile uint8_t g_hlw8112_diag_hold;
 static uint8_t g_hlw8112_spi_fast_gap;
 /* IONE_BK7238_REGFIX31: cold boot 후 IB=0 감시·재 InitReg */
 static uint8_t g_hlw8112_boot_watch_sec;
+/* IONE_BK7238_REGFIX32: clear_energy 연속 실행·PFCnt verify·flash 겹침 방지 */
+static volatile uint8_t g_hlw8112_clear_busy;
+static uint32_t g_hlw8112_last_clear_ms;
 
 int HLW8112_InitReg(void);
 
@@ -623,7 +626,11 @@ uint8_t HLW8112_WriteRegister16(uint8_t reg, uint16_t value) {
   	
 	writeDisable();
   	HLW8112_SPI_Txn_End();
-  
+
+	/* IONE_BK7238_REGFIX32: PFCnt는 실시간 증가 → clear 후 verify 실패·hang */
+	if (reg == HLW8112_REG_PFCntPA || reg == HLW8112_REG_PFCntPB)
+		return result;
+
 	//TODO verify reg this is big no for clearing regs will need to switch last read reg
 	uint16_t readValue;
   	int rresult = HLW8112_ReadRegister16(reg, &readValue);
@@ -698,9 +705,88 @@ void HLW8112_save_stats(HLW8112_SaveFlags_t save) {
 		}
 	}
 }
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+static int HLW8112_ClearEnergyTryBegin(void) {
+	uint32_t now = (uint32_t)rtos_get_time();
+	if (g_hlw8112_clear_busy) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER, "clear_energy: 처리 중 — 잠시 후 다시");
+		return 0;
+	}
+	if (g_hlw8112_last_clear_ms != 0 && (now - g_hlw8112_last_clear_ms) < 3000U) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER,
+			"clear_energy: 3초 간격 필요 (A·B 연속·backlog 금지, all 사용 권장)");
+		return 0;
+	}
+	g_hlw8112_clear_busy = 1;
+	return 1;
+}
+
+static void HLW8112_ClearEnergyTryEnd(void) {
+	g_hlw8112_last_clear_ms = (uint32_t)rtos_get_time();
+	g_hlw8112_clear_busy = 0;
+}
+
+static void HLW8112_SaveEnergyFlashOne(ENERGY_DATA *data, ENERGY_CHANNEL ch) {
+	int pg = OTA_GetProgress();
+	if (pg != -1) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER, "OTA in progress skip write to flash pg=%d", pg);
+		return;
+	}
+	HAL_FlashVars_SaveEnergyOne(data, ch);
+	rtos_delay_milliseconds(30);
+}
+
+static void HLW8112_SaveEnergyFlashBoth(void) {
+	int pg = OTA_GetProgress();
+	ENERGY_DATA *pair[2];
+	if (pg != -1) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER, "OTA in progress skip write to flash pg=%d", pg);
+		return;
+	}
+	pair[0] = &energy_acc_a;
+	pair[1] = &energy_acc_b;
+	HAL_FlashVars_SaveEnergy(pair, 2);
+	rtos_delay_milliseconds(30);
+}
+
+static void HLW8112_ResetChipEnergyDelta(HLW8112_Channel_t channel) {
+	uint8_t reg = (channel == HLW8112_CHANNEL_B) ? HLW8112_REG_ENERGY_PB : HLW8112_REG_ENERGY_PA;
+	uint32_t dummy = 0;
+	/* ENERGY_Px: read 시 칩 내부 누적값 리셋 */
+	(void)HLW8112_ReadRegister24(reg, &dummy);
+}
+
+static void HLW8112_ClearEnergyBoth(void) {
+	HLW8112_DiagBegin();
+	HLW8112_ResetChipEnergyDelta(HLW8112_CHANNEL_A);
+	HLW8112_BK7238_RegGap();
+	HLW8112_ResetChipEnergyDelta(HLW8112_CHANNEL_B);
+	HLW8112_DiagEnd();
+
+	energy_acc_a.Import = 0.0f;
+	energy_acc_a.Export = 0.0f;
+	energy_acc_b.Import = 0.0f;
+	energy_acc_b.Export = 0.0f;
+	CHANNEL_Set(HLW8112_Channel_export_A, 0, 0);
+	CHANNEL_Set(HLW8112_Channel_import_A, 0, 0);
+	CHANNEL_Set(HLW8112_Channel_export_B, 0, 0);
+	CHANNEL_Set(HLW8112_Channel_import_B, 0, 0);
+	HLW8112_SaveEnergyFlashBoth();
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: A·B 모두 0 (flash 1회)");
+}
+#endif
+
 void HLW8112_Set_EnergyStat(HLW8112_Channel_t channel, float import, float export) {
 	ENERGY_DATA* data = &energy_acc_a;
 	uint16_t counter_reg = HLW8112_REG_PFCntPA;
+	int is_clear = (import == 0.0f && export == 0.0f);
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (is_clear && !HLW8112_ClearEnergyTryBegin())
+		return;
+#endif
+
 	if (channel == HLW8112_CHANNEL_B){
 		data = &energy_acc_b;
 		counter_reg = HLW8112_REG_PFCntPB;
@@ -711,9 +797,25 @@ void HLW8112_Set_EnergyStat(HLW8112_Channel_t channel, float import, float expor
 		CHANNEL_Set(HLW8112_Channel_import_A, import * 1000, 0);
 	}
 
-	HLW8112_WriteRegister16(counter_reg,0);
 	data->Import = import;
 	data->Export = export;
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (is_clear) {
+		/* IONE_BK7238_REGFIX32: PFCnt SPI 쓰기·verify 제거, 채널별 flash 1회 */
+		HLW8112_DiagBegin();
+		HLW8112_ResetChipEnergyDelta(channel);
+		HLW8112_DiagEnd();
+		HLW8112_SaveEnergyFlashOne(data,
+			channel == HLW8112_CHANNEL_B ? ENERGY_CHANNEL_B : ENERGY_CHANNEL_A);
+		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: channel_%c = 0",
+			channel == HLW8112_CHANNEL_B ? 'b' : 'a');
+		HLW8112_ClearEnergyTryEnd();
+		return;
+	}
+#endif
+
+	HLW8112_WriteRegister16(counter_reg, 0);
 	HLW8112_save_stats(HLW8112_SAVE_FORCE);
 }
 #pragma endregion
@@ -790,10 +892,22 @@ static commandResult_t HLW8112_ClearEnergy(const void *context, const char *cmd,
 		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
 	}
 	char* channel = Tokenizer_GetArg(0);
-	if (!strcmp("channel_a" , channel)) {
-		HLW8112_Set_EnergyStat(HLW8112_CHANNEL_A,0,0);
-	} else if (!strcmp("channel_b" , channel)){
-		HLW8112_Set_EnergyStat(HLW8112_CHANNEL_B,0,0);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (!strcmp("all", channel) || !strcmp("both", channel) || !strcmp("channel_ab", channel)) {
+		if (!HLW8112_ClearEnergyTryBegin())
+			return CMD_RES_BAD_ARGUMENT;
+		HLW8112_ClearEnergyBoth();
+		HLW8112_ClearEnergyTryEnd();
+		return CMD_RES_OK;
+	}
+#endif
+	if (!strcmp("channel_a", channel) || !strcmp("a", channel)) {
+		HLW8112_Set_EnergyStat(HLW8112_CHANNEL_A, 0, 0);
+	} else if (!strcmp("channel_b", channel) || !strcmp("b", channel)) {
+		HLW8112_Set_EnergyStat(HLW8112_CHANNEL_B, 0, 0);
+	} else {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "clear_energy: channel_a|channel_b|all");
+		return CMD_RES_BAD_ARGUMENT;
 	}
 	return CMD_RES_OK;
 }
@@ -1718,12 +1832,20 @@ void appendRegEdit(http_request_t *request, char *name,uint16_t reg, bool readon
 void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState) {
 	if (bPreState) {
 		if (http_getArgInteger(request->url, "clear_energy")) {
-			char channel[2];
+			char channel[8];
 			if (http_getArg(request->url, "channel", channel, sizeof(channel))) {
-				if (!strcmp("a" , channel)) {
-					HLW8112_Set_EnergyStat(HLW8112_CHANNEL_A,0,0);
-				} else {
-					HLW8112_Set_EnergyStat(HLW8112_CHANNEL_B,0,0);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+				if (!strcmp("all", channel) || !strcmp("both", channel)) {
+					if (HLW8112_ClearEnergyTryBegin()) {
+						HLW8112_ClearEnergyBoth();
+						HLW8112_ClearEnergyTryEnd();
+					}
+				} else
+#endif
+				if (!strcmp("a", channel)) {
+					HLW8112_Set_EnergyStat(HLW8112_CHANNEL_A, 0, 0);
+				} else if (!strcmp("b", channel)) {
+					HLW8112_Set_EnergyStat(HLW8112_CHANNEL_B, 0, 0);
 				}
 			}
 		}

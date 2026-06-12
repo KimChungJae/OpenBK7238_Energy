@@ -203,6 +203,14 @@ void HAL_FlashVars_SaveEnergy(ENERGY_DATA** data, int channel_count)
 		}
 	}
 }
+void HAL_FlashVars_SaveEnergyOne(ENERGY_DATA* data, ENERGY_CHANNEL channel)
+{
+	if (data != NULL) {
+		char buffer[20];
+		sprintf(buffer, "HLW_CH%i", (int)channel);
+		ef_set_env_blob(buffer, data, sizeof(ENERGY_DATA));
+	}
+}
 void HAL_FlashVars_GetEnergy(ENERGY_DATA* data, ENERGY_CHANNEL channel)
 {
 	if(data != NULL)

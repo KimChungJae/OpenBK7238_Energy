@@ -71,6 +71,7 @@ float HAL_FlashVars_GetEnergyExport();
 
 #ifdef ENABLE_DRIVER_HLW8112SPI
 void HAL_FlashVars_SaveEnergy(ENERGY_DATA** data, int channel_count);
+void HAL_FlashVars_SaveEnergyOne(ENERGY_DATA* data, ENERGY_CHANNEL channel);
 void HAL_FlashVars_GetEnergy(ENERGY_DATA* data, ENERGY_CHANNEL channel);
 #endif
 
