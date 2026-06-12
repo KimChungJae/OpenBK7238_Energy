@@ -1,5 +1,6 @@
 # PM01_A003 (T1-U-HL / BK7238 + HLW8112 SPI) 전용 빌드
-# Fork 저장소에 .github/workflows/ 아래로 복사 후 Actions → Run workflow
+# Fork: .github/workflows/build-bk7238-hlw8112.yml
+#       scripts/hlw8112_bk7238_spi.py  (같이 커밋)
 name: Build BK7238 HLW8112
 
 on:
@@ -16,10 +17,20 @@ jobs:
       - name: Source checkout
         uses: actions/checkout@v4
 
+      - name: Patch HLW8112 SPI for BK7238
+        run: |
+          PY="scripts/hlw8112_bk7238_spi.py"
+          if [ ! -f "$PY" ]; then
+            echo "ERROR: $PY not in fork — copy Tools/OpenBeken/patches/hlw8112_bk7238_spi.py to scripts/"
+            exit 1
+          fi
+          python3 "$PY"
+          grep -q "IONE_BK7238_SPI_FIX" src/driver/drv_hlw8112.c || (echo "ERROR: patch verify failed" && exit 1)
+
       - name: Build OpenBK7238 hlw8112
         run: |
           SHA="$(git rev-parse --short=12 HEAD)"
-          APP_VER="${SHA}_hlw8112"
+          APP_VER="${SHA}_hlw8112_spifix"
           echo "APP_VERSION=${APP_VER}"
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
           mkdir -p artifact
