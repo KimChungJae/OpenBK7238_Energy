@@ -17,13 +17,15 @@ if "IONE_BK7238_REGFIX31" in text and "HLW8112_BK7238_WatchChannelB()" in text:
 need = [
     "IONE_BK7238_REGFIX31",
     "HLW8112_BK7238_WatchChannelB",
-    "HLW8112_BK7238_PostInitReg",
     "HLW8112_reinit",
     "rtos_delay_milliseconds(1500)",
 ]
 for s in need:
     if s not in text:
         sys.exit(f"ERROR: missing {s!r}")
+
+if "HLW8112_BK7238_PostInitReg" not in text and "HLW8112_BK7238_FullInitReg" not in text:
+    sys.exit("ERROR: PostInitReg/FullInitReg missing")
 
 if "HLW8112_BK7238_WatchChannelB();" not in text:
     sys.exit("ERROR: WatchChannelB not called from RunEverySecond")

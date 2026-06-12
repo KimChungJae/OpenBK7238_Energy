@@ -130,8 +130,15 @@ static void HLW8112_DiagEnd(void) {
 	g_hlw8112_diag_hold = 0;
 }
 
-/* IONE_BK7238_REGFIX31: Startup SetClock 직후·IB 미복구 시 InitReg 재실행 */
-static int HLW8112_BK7238_PostInitReg(const char *tag) {
+/* IONE_BK7238_REGFIX33: SetClock/SetResGain 후 InitReg 반복 금지 — SYSCON 재쓰기로 V=0·측정 깨짐 */
+static void HLW8112_BK7238_RefreshScaleOnly(const char *tag) {
+	HLW8112_UpdateCoeff();
+	HLW8112_compute_scale_factor();
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "HLW8112 %s scale KU=%.2f CLKI=%u",
+		tag, device.ResistorCoeff.KU, (unsigned)device.CLKI);
+}
+
+static int HLW8112_BK7238_FullInitReg(const char *tag) {
 	int r;
 	rtos_delay_milliseconds(300);
 	r = HLW8112_InitReg();
@@ -143,14 +150,13 @@ static void HLW8112_BK7238_WatchChannelB(void) {
 	if (g_hlw8112_boot_watch_sec >= 12)
 		return;
 	g_hlw8112_boot_watch_sec++;
-	/* IA>0.5A·IB=0이면 3·6·10초에 InitReg 재시도 */
+	/* IA>0.5A·IB=0이면 기동 6초에 InitReg 1회만 (3·6·10 연속 재초기화는 측정 중단 유발) */
 	if (last_update_data.ia_rms > 500 && last_update_data.ib_rms == 0) {
-		if (g_hlw8112_boot_watch_sec == 3 || g_hlw8112_boot_watch_sec == 6
-				|| g_hlw8112_boot_watch_sec == 10) {
+		if (g_hlw8112_boot_watch_sec == 6) {
 			ADDLOG_WARN(LOG_FEATURE_ENERGYMETER,
-				"HLW8112 IB=0 IA=%d -> InitReg retry (%us)",
-				(int)last_update_data.ia_rms, (unsigned)g_hlw8112_boot_watch_sec);
-			HLW8112_BK7238_PostInitReg("IB-watch");
+				"HLW8112 IB=0 IA=%d -> InitReg once (6s)",
+				(int)last_update_data.ia_rms);
+			HLW8112_BK7238_FullInitReg("IB-watch");
 		}
 	}
 }
@@ -833,9 +839,7 @@ static commandResult_t HLW8112_SetClock(const void *context, const char *cmd, co
 	//CHANNEL_Set(HLW8112_Channel_Clk, value, 0 );
 	CFG_SetPowerMeasurementCalibrationInteger(CFG_OBK_CLK,value);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	HLW8112_UpdateCoeff();
-	HLW8112_compute_scale_factor();
-	HLW8112_BK7238_PostInitReg("SetClock");
+	HLW8112_BK7238_RefreshScaleOnly("SetClock");
 #else
 	HLW8112_compute_scale_factor();
 #endif
@@ -858,9 +862,7 @@ static commandResult_t HLW8112_SetResistorGain(const void *context, const char *
 	CFG_SetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIA, device.ResistorCoeff.KIA );
 	CFG_SetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIB, device.ResistorCoeff.KIB );
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	HLW8112_UpdateCoeff();
-	HLW8112_compute_scale_factor();
-	HLW8112_BK7238_PostInitReg("SetResGain");
+	HLW8112_BK7238_RefreshScaleOnly("SetResGain");
 #else
 	HLW8112_compute_scale_factor();
 #endif
@@ -881,7 +883,7 @@ static commandResult_t HLW8112_SetEnergyStat(const void *context, const char *cm
 static commandResult_t HLW8112_CmdReinit(const void *context, const char *cmd, const char *args, int cmdFlags) {
 	(void)context; (void)cmd; (void)args; (void)cmdFlags;
 	g_hlw8112_boot_watch_sec = 0;
-	HLW8112_BK7238_PostInitReg("manual");
+	HLW8112_BK7238_FullInitReg("manual");
 	return CMD_RES_OK;
 }
 #endif
@@ -1062,33 +1064,62 @@ static commandResult_t HLW8112_CmdSpiRegDbg(const void *context, const char *cmd
 	return res;
 }
 
+static void HLW8112_BK7238_MeasureLive(HLW8112_Data_t *data);
+static void HLW8112_ScaleAndUpdate(HLW8112_Data_t *data);
+
+static void HLW8112_BK7238_MeasureLive(HLW8112_Data_t *data) {
+	HLW8112_ReadRegister24(HLW8112_REG_RMSU, &data->v_rms);
+	HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data->freq);
+	HLW8112_ReadRegister24(HLW8112_REG_RMSIA, &data->ia_rms);
+	HLW8112_ReadRegister24(HLW8112_REG_RMSIB, &data->ib_rms);
+	HLW8112_ReadRegister32(HLW8112_REG_POWER_PA, &data->pa);
+	HLW8112_ReadRegister32(HLW8112_REG_POWER_PB, &data->pb);
+	HLW8112_ReadRegister24(HLW8112_REG_ENERGY_PA, &data->ea);
+	HLW8112_ReadRegister24(HLW8112_REG_ENERGY_PB, &data->eb);
+	HLW8112_ReadRegister24(HLW8112_REG_POWER_FACTOR, &data->pf);
+	HLW8112_ReadRegister32(HLW8112_REG_POWER_S, &data->ap);
+	HLW8112_ScaleAndUpdate(data);
+}
+
 static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	HLW8112_Data_t data;
 	uint8_t tx[1] = { HLW8112_REG_UFREQ & 0x7F };
 	uint8_t rx[5] = { 0 };
 	int off = -1, le = -1;
 	uint32_t parsed;
 	double frqScale;
 	uint32_t ch1;
-	(void)context; (void)cmd; (void)args; (void)cmdFlags;
+	int verbose = 0;
+	(void)context; (void)cmd; (void)cmdFlags;
+	if (args && args[0] && !strcmp(args, "verbose"))
+		verbose = 1;
 	HLW8112_DiagBegin();
 	HLW8112_SPI_Transact(tx, 1, rx, 5);
 	if (device.CLKI > 0)
 		frqScale = (double)device.CLKI * 100.0 / 8.0;
 	else
 		frqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
-	for (int o = 0; o <= 3; o++) {
-		for (int l = 0; l <= 1; l++) {
-			uint32_t v = HLW8112_BK7238_UfreqPair(rx, o, l);
-			uint32_t hz = v ? (uint32_t)(frqScale / (double)v) : 0;
-			ADDLOG_INFO(LOG_FEATURE_CMD, "  cand off=%d le=%d v=%u hz~%u", o, l, (unsigned)v, (unsigned)hz);
+	if (verbose) {
+		for (int o = 0; o <= 3; o++) {
+			for (int l = 0; l <= 1; l++) {
+				uint32_t v = HLW8112_BK7238_UfreqPair(rx, o, l);
+				if (v >= 0xFF00U)
+					continue;
+				uint32_t hz = v ? (uint32_t)(frqScale / (double)v) : 0;
+				ADDLOG_INFO(LOG_FEATURE_CMD, "  cand off=%d le=%d v=%u hz~%u", o, l, (unsigned)v, (unsigned)hz);
+			}
 		}
 	}
 	parsed = HLW8112_BK7238_ParseUfreq(rx, &off, &le);
 	ch1 = parsed ? (uint32_t)(frqScale / (double)parsed) : 0;
+	HLW8112_BK7238_MeasureLive(&data);
 	ADDLOG_INFO(LOG_FEATURE_CMD,
-		"UFREQ pick rx=%02X %02X %02X %02X %02X CLKI=%u off=%d le=%d reg=%u Ch1~%u V=%d",
-		rx[0], rx[1], rx[2], rx[3], rx[4], (unsigned)device.CLKI, off, le,
-		(unsigned)parsed, (unsigned)ch1, (int)last_update_data.v_rms);
+		"HLW8112 live V=%.1fV F=%.2fHz IA=%.3fA IB=%.3fA PA=%.1fW PB=%.1fW | UFREQ=%u (~%.1fHz) KU=%.2f CLKI=%u",
+		last_update_data.v_rms / 1000.0f, last_update_data.freq / 100.0f,
+		last_update_data.ia_rms / 1000.0f, last_update_data.ib_rms / 1000.0f,
+		last_update_data.pa / 1000.0f, last_update_data.pb / 1000.0f,
+		(unsigned)parsed, ch1 / 100.0f,
+		device.ResistorCoeff.KU, (unsigned)device.CLKI);
 	HLW8112_DiagEnd();
 	return CMD_RES_OK;
 }
@@ -1432,14 +1463,10 @@ void HLW8112SPI_Init(void) {
 	HLW8112_Init();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	g_hlw8112_boot_watch_sec = 0;
-	/* IONE_BK7238_REGFIX31: HLW8112 전원·아날로그 안정 후 InitReg (cold boot B=0 방지) */
+	/* IONE_BK7238_REGFIX31/33: 전원 안정 후 InitReg 1회 (이중 InitReg는 측정 0·B=0 유발) */
 	rtos_delay_milliseconds(1500);
 	HLW8112_BK7238_PollSpiConfigure();
-	{
-		int r1 = HLW8112_InitReg();
-		int r2 = HLW8112_BK7238_PostInitReg("boot");
-		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "HLW8112 boot InitReg result %d %d", r1, r2);
-	}
+	HLW8112_BK7238_FullInitReg("boot");
 #else
 	SPI_DriverInit();
 	spi_config_t cfg;
@@ -1459,10 +1486,28 @@ void HLW8112SPI_Init(void) {
 
 #pragma region scalers
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* IONE_BK7238_REGFIX33: 24-bit RMS bit23=부호 — INVALID(bit23) 오판으로 V/I=0 고정 버그 */
+static int HLW8112_BK7238_Invalid24(uint32_t regValue) {
+	return (regValue & 0x00FFFFFF) == 0x00FFFFFF;
+}
+#endif
+
 void HLW8112_ScaleVoltage(uint32_t regValue, int32_t* value){
 	if (regValue == 0) {
 		*value = 0;
 	}
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	else if (HLW8112_BK7238_Invalid24(regValue)) {
+		*value = 0;
+	}
+	else {
+		double scale = device.ScaleFactor.v_rms;
+		int32_t rv = HLW8112_24BitTo32Bit(regValue);
+		double v = rv * scale;
+		*value = (int32_t)v;
+	}
+#else
 	else if( regValue & HLW8112_INVALID_REGVALUE) {
 		*value = 0;
 	}
@@ -1473,6 +1518,7 @@ void HLW8112_ScaleVoltage(uint32_t regValue, int32_t* value){
 
 		*value = (int32_t)v;
 	}
+#endif
 	
 }
 
@@ -1488,6 +1534,17 @@ void HLW8112_ScaleCurrent(HLW8112_Channel_t channel, uint32_t regValue, int32_t*
 if (regValue == 0) {
 		*value = 0;
 	}
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	else if (HLW8112_BK7238_Invalid24(regValue)) {
+		*value = 0;
+	}
+	else {
+		double scale = channel == HLW8112_CHANNEL_B ? device.ScaleFactor.b.i : device.ScaleFactor.a.i;
+		int32_t rv = HLW8112_24BitTo32Bit(regValue);
+		double v = rv * scale;
+		*value = (int32_t)v;
+	}
+#else
 	else if( regValue & HLW8112_INVALID_REGVALUE) {
 		*value = 0;
 	}
@@ -1498,6 +1555,7 @@ if (regValue == 0) {
   
 		*value = (int32_t)v;
 	}
+#endif
 }
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
