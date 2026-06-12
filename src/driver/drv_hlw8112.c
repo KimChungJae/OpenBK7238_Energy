@@ -24,6 +24,7 @@
 #include "../libraries/obktime/obktime.h"
 #include "../driver/drv_deviceclock.h"
 #include "../new_pins.h"
+#include "../new_cfg.h"
 
 #include "drv_public.h"
 #include "drv_spi.h"
@@ -144,6 +145,34 @@ static int HLW8112_BK7238_FullInitReg(const char *tag) {
 	r = HLW8112_InitReg();
 	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "HLW8112 %s InitReg result %d", tag, r);
 	return r;
+}
+
+/* IONE_BK7238_REGFIX35: flash union 오염·InitReg 재호출 시 보정값 보호 */
+static float HLW8112_SanitizeGain(float v, float def) {
+	if (v < 0.05f || v > 20.0f)
+		return def;
+	return v;
+}
+
+static void HLW8112_LoadResistorCoeff(void) {
+	float ku, kia, kib;
+
+	ku = HLW8112_SanitizeGain(
+		CFG_GetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KU, DEFAULT_RES_KU), DEFAULT_RES_KU);
+	kia = HLW8112_SanitizeGain(
+		CFG_GetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIA, DEFAULT_RES_KIA), DEFAULT_RES_KIA);
+	kib = HLW8112_SanitizeGain(
+		CFG_GetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIB, DEFAULT_RES_KIB), DEFAULT_RES_KIB);
+	/* Startup SetResGain 적용 후 InitReg(IB-watch 등)가 CFG 쓰레기로 덮어쓰지 않도록 */
+	if (device.ResistorCoeff.KU >= 0.05f && device.ResistorCoeff.KU <= 20.0f)
+		ku = device.ResistorCoeff.KU;
+	if (device.ResistorCoeff.KIA >= 0.01f && device.ResistorCoeff.KIA <= 20.0f)
+		kia = device.ResistorCoeff.KIA;
+	if (device.ResistorCoeff.KIB >= 0.01f && device.ResistorCoeff.KIB <= 20.0f)
+		kib = device.ResistorCoeff.KIB;
+	device.ResistorCoeff.KU = ku;
+	device.ResistorCoeff.KIA = kia;
+	device.ResistorCoeff.KIB = kib;
 }
 
 static void HLW8112_BK7238_WatchChannelB(void) {
@@ -863,6 +892,7 @@ static commandResult_t HLW8112_SetResistorGain(const void *context, const char *
 	CFG_SetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIB, device.ResistorCoeff.KIB );
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	HLW8112_BK7238_RefreshScaleOnly("SetResGain");
+	CFG_Save_IfThereArePendingChanges();
 #else
 	HLW8112_compute_scale_factor();
 #endif
@@ -1106,10 +1136,17 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 		last_update_data.freq = f;
 		last_update_data.ia_rms = ia;
 		last_update_data.ib_rms = ib;
-		ADDLOG_INFO(LOG_FEATURE_CMD,
-			"HLW8112 V=%.1fV F=%.2fHz IA=%.3fA IB=%.3fA KU=%.2f CLKI=%u",
-			v / 1000.0f, f / 100.0f, ia / 1000.0f, ib / 1000.0f,
-			device.ResistorCoeff.KU, (unsigned)device.CLKI);
+		{
+			/* REGFIX35: BK7238 Command Tool printf float 미지원 → 정수 milli 출력 */
+			unsigned ku_m = (unsigned)(device.ResistorCoeff.KU * 1000.0f + 0.5f);
+			ADDLOG_INFO(LOG_FEATURE_CMD,
+				"HLW8112 V=%u.%03uV F=%u.%02uHz IA=%u.%03uA IB=%u.%03uA KU=%u.%03u CLKI=%u",
+				(unsigned)(v / 1000), (unsigned)(v % 1000),
+				(unsigned)(f / 100), (unsigned)(f % 100),
+				(unsigned)(ia / 1000), (unsigned)(ia % 1000),
+				(unsigned)(ib / 1000), (unsigned)(ib % 1000),
+				ku_m / 1000, ku_m % 1000, (unsigned)device.CLKI);
+		}
 	}
 	HLW8112_DiagEnd();
 	return res;
@@ -1387,9 +1424,13 @@ int HLW8112_InitReg() {
 	#pragma endregion
 
   	// device info
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_LoadResistorCoeff();
+#else
 	device.ResistorCoeff.KU = CFG_GetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KU, DEFAULT_RES_KU);
 	device.ResistorCoeff.KIA = CFG_GetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIA, DEFAULT_RES_KIA);
 	device.ResistorCoeff.KIB = CFG_GetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIB, DEFAULT_RES_KIB);
+#endif
 
 	device.PGA.U = PGU;
 	device.PGA.IA = PGA;
