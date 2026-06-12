@@ -1357,6 +1357,7 @@ void HLW8112_ScalePowerFactor(uint32_t regValue, int16_t* value){
 }
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* IONE_BK7238_REGFIX25: RoundChPower 스케일 수정 (채널 전력 10배 오류) */
 /* IONE_BK7238_REGFIX24: 채널/MQTT 0.1 단위 반올림 (227.1V, 3.6A) */
 static float HLW8112_RoundChVoltage(int32_t v_mV) {
 	return roundf(v_mV / 1000.0f * 10.0f) * 10.0f;
@@ -1368,7 +1369,8 @@ static float HLW8112_RoundChFreq(int32_t f) {
 	return roundf(f / 100.0f * 10.0f) * 10.0f;
 }
 static float HLW8112_RoundChPower(int32_t p_mW) {
-	return roundf(p_mW / 1000.0f * 10.0f) * 100.0f;
+	/* ChType_Power_div100 + 기존 pa/10 — 채널값×100=W, 0.1W 반올림 */
+	return roundf(p_mW / 1000.0f * 10.0f) * 10.0f;
 }
 static float HLW8112_RoundChPF(int32_t pf) {
 	return roundf(pf / 1000.0f * 10.0f) * 100.0f;

@@ -30,7 +30,7 @@ static float HLW8112_RoundChFreq(int32_t f) {
 \treturn roundf(f / 100.0f * 10.0f) * 10.0f;
 }
 static float HLW8112_RoundChPower(int32_t p_mW) {
-\treturn roundf(p_mW / 1000.0f * 10.0f) * 100.0f;
+\treturn roundf(p_mW / 1000.0f * 10.0f) * 10.0f;
 }
 static float HLW8112_RoundChPF(int32_t pf) {
 \treturn roundf(pf / 1000.0f * 10.0f) * 100.0f;
