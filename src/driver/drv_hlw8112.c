@@ -1064,64 +1064,55 @@ static commandResult_t HLW8112_CmdSpiRegDbg(const void *context, const char *cmd
 	return res;
 }
 
-static void HLW8112_BK7238_MeasureLive(HLW8112_Data_t *data);
-static void HLW8112_ScaleAndUpdate(HLW8112_Data_t *data);
-
-static void HLW8112_BK7238_MeasureLive(HLW8112_Data_t *data) {
-	HLW8112_ReadRegister24(HLW8112_REG_RMSU, &data->v_rms);
-	HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data->freq);
-	HLW8112_ReadRegister24(HLW8112_REG_RMSIA, &data->ia_rms);
-	HLW8112_ReadRegister24(HLW8112_REG_RMSIB, &data->ib_rms);
-	HLW8112_ReadRegister32(HLW8112_REG_POWER_PA, &data->pa);
-	HLW8112_ReadRegister32(HLW8112_REG_POWER_PB, &data->pb);
-	HLW8112_ReadRegister24(HLW8112_REG_ENERGY_PA, &data->ea);
-	HLW8112_ReadRegister24(HLW8112_REG_ENERGY_PB, &data->eb);
-	HLW8112_ReadRegister24(HLW8112_REG_POWER_FACTOR, &data->pf);
-	HLW8112_ReadRegister32(HLW8112_REG_POWER_S, &data->ap);
-	HLW8112_ScaleAndUpdate(data);
+static void HLW8112_BK7238_ScalePreview(const HLW8112_Data_t *data,
+		int32_t *v, int32_t *f, int32_t *ia, int32_t *ib) {
+	HLW8112_ScaleVoltage(data->v_rms, v);
+	HLW8112_ScaleFrequency(data->freq, f);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (*v < 50000)
+		*f = 0;
+#endif
+	HLW8112_ScaleCurrent(HLW8112_CHANNEL_A, data->ia_rms, ia);
+	HLW8112_ScaleCurrent(HLW8112_CHANNEL_B, data->ib_rms, ib);
 }
 
 static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	/* IONE_BK7238_REGFIX34: Command Tool 다운 방지 — spireg급 경량·5초 쿨다운·채널/flash/MQTT 생략 */
+	static uint32_t s_ufreq_last_ms;
 	HLW8112_Data_t data;
-	uint8_t tx[1] = { HLW8112_REG_UFREQ & 0x7F };
-	uint8_t rx[5] = { 0 };
-	int off = -1, le = -1;
-	uint32_t parsed;
-	double frqScale;
-	uint32_t ch1;
-	int verbose = 0;
-	(void)context; (void)cmd; (void)cmdFlags;
-	if (args && args[0] && !strcmp(args, "verbose"))
-		verbose = 1;
-	HLW8112_DiagBegin();
-	HLW8112_SPI_Transact(tx, 1, rx, 5);
-	if (device.CLKI > 0)
-		frqScale = (double)device.CLKI * 100.0 / 8.0;
-	else
-		frqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
-	if (verbose) {
-		for (int o = 0; o <= 3; o++) {
-			for (int l = 0; l <= 1; l++) {
-				uint32_t v = HLW8112_BK7238_UfreqPair(rx, o, l);
-				if (v >= 0xFF00U)
-					continue;
-				uint32_t hz = v ? (uint32_t)(frqScale / (double)v) : 0;
-				ADDLOG_INFO(LOG_FEATURE_CMD, "  cand off=%d le=%d v=%u hz~%u", o, l, (unsigned)v, (unsigned)hz);
-			}
-		}
+	int32_t v, f, ia, ib;
+	uint32_t now;
+	commandResult_t res = CMD_RES_OK;
+	(void)context; (void)cmd; (void)args; (void)cmdFlags;
+
+	now = (uint32_t)rtos_get_time();
+	if (s_ufreq_last_ms != 0 && (now - s_ufreq_last_ms) < 5000U) {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "HLW8112_ufreq: 5초 후 다시 (Web Console 권장)");
+		return CMD_RES_BAD_ARGUMENT;
 	}
-	parsed = HLW8112_BK7238_ParseUfreq(rx, &off, &le);
-	ch1 = parsed ? (uint32_t)(frqScale / (double)parsed) : 0;
-	HLW8112_BK7238_MeasureLive(&data);
-	ADDLOG_INFO(LOG_FEATURE_CMD,
-		"HLW8112 live V=%.1fV F=%.2fHz IA=%.3fA IB=%.3fA PA=%.1fW PB=%.1fW | UFREQ=%u (~%.1fHz) KU=%.2f CLKI=%u",
-		last_update_data.v_rms / 1000.0f, last_update_data.freq / 100.0f,
-		last_update_data.ia_rms / 1000.0f, last_update_data.ib_rms / 1000.0f,
-		last_update_data.pa / 1000.0f, last_update_data.pb / 1000.0f,
-		(unsigned)parsed, ch1 / 100.0f,
-		device.ResistorCoeff.KU, (unsigned)device.CLKI);
+	s_ufreq_last_ms = now;
+
+	HLW8112_DiagBegin();
+	if (HLW8112_ReadRegister24(HLW8112_REG_RMSU, &data.v_rms) < 0
+			|| HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data.freq) < 0
+			|| HLW8112_ReadRegister24(HLW8112_REG_RMSIA, &data.ia_rms) < 0
+			|| HLW8112_ReadRegister24(HLW8112_REG_RMSIB, &data.ib_rms) < 0) {
+		ADDLOG_ERROR(LOG_FEATURE_CMD, "HLW8112_ufreq: SPI read fail");
+		res = CMD_RES_ERROR;
+	} else {
+		HLW8112_BK7238_ScalePreview(&data, &v, &f, &ia, &ib);
+		/* 웹 표용 캐시만 갱신 — CHANNEL_Set·flash·MQTT는 1Hz 루프에 맡김 */
+		last_update_data.v_rms = v;
+		last_update_data.freq = f;
+		last_update_data.ia_rms = ia;
+		last_update_data.ib_rms = ib;
+		ADDLOG_INFO(LOG_FEATURE_CMD,
+			"HLW8112 V=%.1fV F=%.2fHz IA=%.3fA IB=%.3fA KU=%.2f CLKI=%u",
+			v / 1000.0f, f / 100.0f, ia / 1000.0f, ib / 1000.0f,
+			device.ResistorCoeff.KU, (unsigned)device.CLKI);
+	}
 	HLW8112_DiagEnd();
-	return CMD_RES_OK;
+	return res;
 }
 #endif
 
