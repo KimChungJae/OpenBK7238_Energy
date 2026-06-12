@@ -13,7 +13,7 @@ if "IONE_BK7238_REGFIX21" in text:
     print("Patch v21 already applied")
     sys.exit(0)
 
-if "IONE_BK7238_REGFIX20" not in text:
+if "IONE_BK7238_REGFIX20" not in text and "IONE_BK7238_REGFIX21" not in text:
     sys.exit("ERROR: apply spifix20 first")
 
 old_off = """/* IONE_BK7238_REGFIX20: 24·32-bit=rx[0]~ / 16-bit 계수만 rx[1]~ (32-bit off=1 시 rx[4]=0xFF 혼입→전력 -111kW) */

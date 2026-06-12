@@ -9,11 +9,11 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_REGFIX20" in text:
+if "IONE_BK7238_REGFIX20" in text or "IONE_BK7238_REGFIX21" in text:
     print("Patch v20 already applied")
     sys.exit(0)
 
-if "IONE_BK7238_REGFIX19" not in text:
+if "IONE_BK7238_REGFIX19" not in text and "IONE_BK7238_REGFIX20" not in text and "IONE_BK7238_REGFIX21" not in text:
     sys.exit("ERROR: apply spifix19 first")
 
 old_off = """/* IONE_BK7238_REGFIX19: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
