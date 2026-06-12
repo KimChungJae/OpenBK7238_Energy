@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 — IONE patch v14 (UFREQ: CLKI 기준 Hz + 후보 dump)
+# BK7238 HLW8112 ??IONE patch v14 (UFREQ: CLKI 기�? Hz + ?�보 dump)
 from pathlib import Path
 import sys
 
@@ -9,7 +9,7 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text or "IONE_BK7238_REGFIX16" in text:
+if "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text or "IONE_BK7238_REGFIX16" in text or "IONE_BK7238_REGFIX17" in text:
     print("Patch v14/v15 already applied")
     sys.exit(0)
 
@@ -35,14 +35,14 @@ text = text.replace(old_try, new_try, 1)
 old_scale = """\tdouble frqScale = device.ScaleFactor.freq;
 \tif (frqScale <= 0)
 \t\tfrqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
-\t/* off×BE/LE 스캔 + 선행 0xFF 스킵 — 45~70Hz(Ch1 4500~7000)에 가장 가까운 후보 */"""
+\t/* off×BE/LE ?�캔 + ?�행 0xFF ?�킵 ??45~70Hz(Ch1 4500~7000)??가??가까운 ?�보 */"""
 
 new_scale = """\tdouble frqScale;
 \tif (device.CLKI > 0)
 \t\tfrqScale = (double)device.CLKI * 100.0 / 8.0;
 \telse
 \t\tfrqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
-\t/* off×BE/LE 스캔 — 35~80Hz(Ch1 3500~8000)에 60Hz(6000)에 가장 가까운 후보 */"""
+\t/* off×BE/LE ?�캔 ??35~80Hz(Ch1 3500~8000)??60Hz(6000)??가??가까운 ?�보 */"""
 
 if old_scale not in text:
     sys.exit("ERROR: ParseUfreq frqScale block not found")

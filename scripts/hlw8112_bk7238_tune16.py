@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 — IONE patch v16 (전 레지스터 SPI off=0 + spireg 진단)
+# BK7238 HLW8112 ??IONE patch v16 (???��??�터 SPI off=0 + spireg 진단)
 from pathlib import Path
 import sys
 
@@ -9,8 +9,8 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_REGFIX16" in text:
-    print("Patch v16 already applied")
+if "IONE_BK7238_REGFIX16" in text or "IONE_BK7238_REGFIX17" in text or "IONE_BK7238_REGFIX17" in text:
+    print("Patch v16/v17 already applied")
     sys.exit(0)
 
 if "IONE_BK7238_REGFIX15" not in text:
@@ -28,7 +28,7 @@ new_rx = """static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, u
 \t(void)rx;
 \t(void)reg;
 \t(void)size;
-\t/* BK7238 3-wire SPI: 유효 데이터는 rx[0]부터 (RMSU와 동일) */
+\t/* BK7238 3-wire SPI: ?�효 ?�이?�는 rx[0]부??(RMSU?� ?�일) */
 \treturn 0;
 }"""
 

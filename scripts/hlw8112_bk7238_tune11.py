@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 — IONE patch v11 (UFREQ: BE+LE off 스캔)
+# BK7238 HLW8112 ??IONE patch v11 (UFREQ: BE+LE off ?�캔)
 from pathlib import Path
 import sys
 
@@ -10,7 +10,7 @@ if not HLW.is_file():
 
 text = HLW.read_text(encoding="utf-8")
 if ("IONE_BK7238_REGFIX11" in text or "IONE_BK7238_REGFIX12" in text or "IONE_BK7238_REGFIX13" in text
-        or "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text or "IONE_BK7238_REGFIX16" in text):
+        or "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text or "IONE_BK7238_REGFIX16" in text or "IONE_BK7238_REGFIX17" in text):
     print("Patch v11/v12 already applied")
     sys.exit(0)
 
@@ -21,7 +21,7 @@ old_fn = """static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *of
 \tuint32_t fallback = ((uint32_t)rx[1] << 8) | (uint32_t)rx[2];
 \tuint32_t best = 0;
 \tint bestOff = 1;
-\t/* 60Hz(CLKI=3579545) UFREQ reg 약 7466, 50Hz 약 8959 — 5500~9500 */
+\t/* 60Hz(CLKI=3579545) UFREQ reg ??7466, 50Hz ??8959 ??5500~9500 */
 \tfor (int off = 0; off <= 3; off++) {
 \t\tuint32_t v = ((uint32_t)rx[off] << 8) | (uint32_t)rx[off + 1];
 \t\tif (v < 5500 || v > 9500 || v >= 0xFF00)
@@ -52,7 +52,7 @@ static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *offOut, int *l
 \tuint32_t best = 0;
 \tint bestOff = 1;
 \tint bestLe = 0;
-\t/* 60Hz UFREQ reg 약 7466 — BE/LE 모두 스캔 (LE 0x2A1D는 BE로 10781>9500 탈락) */
+\t/* 60Hz UFREQ reg ??7466 ??BE/LE 모두 ?�캔 (LE 0x2A1D??BE�?10781>9500 ?�락) */
 \tfor (int off = 0; off <= 3; off++) {
 \t\tfor (int le = 0; le <= 1; le++) {
 \t\t\tuint32_t v = HLW8112_BK7238_UfreqPair(rx, off, le);

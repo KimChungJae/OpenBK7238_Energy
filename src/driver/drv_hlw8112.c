@@ -278,13 +278,14 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX16: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
+/* IONE_BK7238_REGFIX17: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 	(void)rx;
 	(void)reg;
-	(void)size;
-	/* BK7238 3-wire SPI: 유효 데이터는 rx[0]부터 (RMSU와 동일) */
-	return 0;
+	/* 24-bit(RMSU/RMSIA 등): rx[0]~ / 16·32-bit: rx[1]~ (spifix16 off=0은 RmsUC 틀어져 152V) */
+	if (size == 3)
+		return 0;
+	return 1;
 }
 
 static uint32_t HLW8112_BK7238_UfreqPair(const uint8_t *rx, int off, int le) {
@@ -409,7 +410,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX16 */
+	/* IONE_BK7238_REGFIX17 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -1269,7 +1270,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX16: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX17: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
