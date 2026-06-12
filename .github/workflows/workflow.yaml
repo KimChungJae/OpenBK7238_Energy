@@ -1,11 +1,13 @@
 name: Build App
+# Fork: push 시 20분+ 전체 CI가 HLW8112 빌드 runner 를 막음 → 수동만
 on:
-  push:
-    branches:
-      - '**'
-  pull_request:
-    branches: 
-      - '**'
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - '**'
+  # pull_request:
+  #   branches: 
+  #     - '**'
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
