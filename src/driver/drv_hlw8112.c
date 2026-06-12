@@ -301,12 +301,15 @@ static int HLW8112_BK7238_RxAllFF(const uint8_t *rx) {
 }
 #endif
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX20: 24·32-bit=rx[0]~ / 16-bit 계수만 rx[1]~ (32-bit off=1 시 rx[4]=0xFF 혼입→전력 -111kW) */
+/* IONE_BK7238_REGFIX21: 16-bit 계수 CA0B→off0 / F77F→off1 (RMSIAC off=1이면 전류 ~17배 저하) */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
-	(void)rx;
 	(void)reg;
-	if (size == 2)
+	if (size == 2) {
+		/* CA 0B 7F FF 패턴: 계수는 rx[0,1] / A4 F7 7F FF: 계수는 rx[1,2] */
+		if (rx[2] == 0x7F && rx[3] == 0xFF && rx[0] >= 0xC0)
+			return 0;
 		return 1;
+	}
 	return 0;
 }
 
@@ -436,7 +439,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX20 */
+	/* IONE_BK7238_REGFIX21 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
