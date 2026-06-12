@@ -64,7 +64,7 @@ const char *g_build_str = "Built on " __DATE__ " " __TIME__ " version " USER_SW_
 
 const char httpCorsHeaders[] = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept"; // TEXT MIME type
 
-int g_indexAutoRefreshInterval = 1000; // 1s
+int g_indexAutoRefreshInterval = 10000; // IONE_BK7238_HTTP_REFRESH: 10s (웹 깜빡임 완화)
 
 const char *methodNames[] = {
 	"GET",
