@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 + HLW8112 SPI (ReadRegister -6) — IONE patch v3
+# BK7238 + HLW8112 SPI — IONE patch v4 (v3 Set3Wire 부팅루프 수정)
 from pathlib import Path
 import re
 import sys
@@ -11,20 +11,34 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_SPI_FIX3" in text:
-    print("Patch v3 already applied")
+if "IONE_BK7238_SPI_FIX4" in text:
+    print("Patch v4 already applied")
     sys.exit(0)
 
-# --- Transact: BK7238 recv-only(-6) 회피 — reg + 0xFF 더미로 full-duplex ---
-transact_pat = re.compile(
-    r"int HLW8112_SPI_Transact\(uint8_t \*txBuffer, uint32_t txSize, uint8_t \*rxBuffer, uint32_t rxSize\) \{.*?"
-    r"HLW8112_SPI_Txn_End\(\);\s*"
-    r"ADDLOG_DEBUG\(LOG_FEATURE_ENERGYMETER, \"HLW8112_SPI_Transact result %d\", Result\);\s*"
-    r"return Result;\s*\}",
-    re.MULTILINE | re.DOTALL,
+# v3 버그 제거: sddev SPI_DEV_NAME (BEKEN_NEW 미등록) → HardFault/Wdt
+text = re.sub(
+    r"\nstatic void HLW8112_SPI_Set3Wire\(void\) \{[^}]+\}\n",
+    "\n",
+    text,
+    count=1,
 )
-new_transact = """int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, uint32_t rxSize) {
-\t/* IONE_BK7238_SPI_FIX3 */
+text = text.replace(
+    "#if PLATFORM_BEKEN_NEW && (PLATFORM_BK7238 || PLATFORM_BK7231N || PLATFORM_BK7252N)\n\tHLW8112_SPI_Set3Wire();\n#endif\n",
+    "",
+)
+text = text.replace("IONE_BK7238_SPI_FIX3", "IONE_BK7238_SPI_FIX4")
+
+# --- Transact: full-duplex (reg + 0xFF 더미) — recv-only -6 회피 ---
+if "IONE_BK7238_SPI_FIX4" not in text or "tx_local" not in text:
+    transact_pat = re.compile(
+        r"int HLW8112_SPI_Transact\(uint8_t \*txBuffer, uint32_t txSize, uint8_t \*rxBuffer, uint32_t rxSize\) \{.*?"
+        r"HLW8112_SPI_Txn_End\(\);\s*"
+        r"ADDLOG_DEBUG\(LOG_FEATURE_ENERGYMETER, \"HLW8112_SPI_Transact result %d\", Result\);\s*"
+        r"return Result;\s*\}",
+        re.MULTILINE | re.DOTALL,
+    )
+    new_transact = """int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, uint32_t rxSize) {
+\t/* IONE_BK7238_SPI_FIX4 */
 \tHLW8112_SPI_Txn_Begin();
 \tint Result = 0;
 #if PLATFORM_BEKEN_NEW && (PLATFORM_BK7238 || PLATFORM_BK7231N || PLATFORM_BK7252N)
@@ -56,23 +70,24 @@ new_transact = """int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, u
 \tADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Transact result %d", Result);
 \treturn Result;
 }"""
-if not transact_pat.search(text):
-    sys.exit("ERROR: HLW8112_SPI_Transact pattern not found")
-text = transact_pat.sub(new_transact, text, count=1)
+    if not transact_pat.search(text):
+        sys.exit("ERROR: HLW8112_SPI_Transact pattern not found")
+    text = transact_pat.sub(new_transact, text, count=1)
 
-# SPI 모드: HLW8112 원래값 (mode2 CPOL=1 CPHA=0) — BL0942 mode1 은 8112 와 다름
+# SPI mode2 (HLW8112 원래값)
 text = text.replace(
     "\tcfg.polarity = SPI_POLARITY_LOW;\n\tcfg.phase = SPI_PHASE_2ND_EDGE; /* IONE_BK7238_SPI_FIX2 BL0942-like */\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = 500000;",
-    "\tcfg.polarity = SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_1ST_EDGE; /* IONE_BK7238_SPI_FIX3 */\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = HLW8112_SPI_BAUD_RATE;",
+    "\tcfg.polarity = SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_1ST_EDGE; /* IONE_BK7238_SPI_FIX4 */\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = HLW8112_SPI_BAUD_RATE;",
     1,
 )
-text = text.replace(
-    "\tcfg.polarity = SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_1ST_EDGE;\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = HLW8112_SPI_BAUD_RATE;",
-    "\tcfg.polarity = SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_1ST_EDGE; /* IONE_BK7238_SPI_FIX3 */\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = HLW8112_SPI_BAUD_RATE;",
-    1,
-)
+if "IONE_BK7238_SPI_FIX4" not in text.split("cfg.phase")[1][:80] if "cfg.phase" in text else "":
+    text = text.replace(
+        "\tcfg.polarity = SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_1ST_EDGE;\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = HLW8112_SPI_BAUD_RATE;",
+        "\tcfg.polarity = SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_1ST_EDGE; /* IONE_BK7238_SPI_FIX4 */\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = HLW8112_SPI_BAUD_RATE;",
+        1,
+    )
 
-# --- GPIO mux + 3-wire line mode (OBK_SPI_Init 은 wire_mode 무시) ---
+# GPIO mux (P14/P16/P17) — Set3Wire 대신 이것만 (SPILED_Init 과 동일)
 if "HLW8112_SPI_EnableGpio" not in text:
     inc_block = """
 #if PLATFORM_BEKEN_NEW && (PLATFORM_BK7238 || PLATFORM_BK7231N || PLATFORM_BK7252N)
@@ -88,22 +103,12 @@ static void HLW8112_SPI_EnableGpio(void) {
 \tparam = PWD_SPI_CLK_BIT;
 \tsddev_control(ICU_DEV_NAME, CMD_CLK_PWR_UP, &param);
 }
-static void HLW8112_SPI_Set3Wire(void) {
-\tUINT8 line3 = 1;
-\tsddev_control(SPI_DEV_NAME, CMD_SPI_SET_LINE_MODE, &line3);
-}
 #endif
 """
     anchor = "void HLW8112SPI_Init(void) {"
     if anchor not in text:
         sys.exit("ERROR: HLW8112SPI_Init not found")
     text = text.replace(anchor, inc_block + "\n" + anchor, 1)
-elif "HLW8112_SPI_Set3Wire" not in text:
-    text = text.replace(
-        "\tsddev_control(ICU_DEV_NAME, CMD_CLK_PWR_UP, &param);\n}\n#endif",
-        "\tsddev_control(ICU_DEV_NAME, CMD_CLK_PWR_UP, &param);\n}\nstatic void HLW8112_SPI_Set3Wire(void) {\n\tUINT8 line3 = 1;\n\tsddev_control(SPI_DEV_NAME, CMD_SPI_SET_LINE_MODE, &line3);\n}\n#endif",
-        1,
-    )
 
 if "HLW8112_SPI_EnableGpio();" not in text:
     init_call = re.compile(
@@ -121,23 +126,17 @@ if "HLW8112_SPI_EnableGpio();" not in text:
     if n != 1:
         sys.exit("ERROR: HLW8112SPI_Init GPIO call insert failed")
 
-# OBK_SPI_Init 직후 3-wire 설정
-if "HLW8112_SPI_Set3Wire();" not in text:
-    text = text.replace(
-        "\tOBK_SPI_Init(&cfg);\n",
-        "\tOBK_SPI_Init(&cfg);\n#if PLATFORM_BEKEN_NEW && (PLATFORM_BK7238 || PLATFORM_BK7231N || PLATFORM_BK7252N)\n\tHLW8112_SPI_Set3Wire();\n#endif\n",
-        1,
-    )
+text = text.replace("IONE_BK7238_SPI_FIX2", "IONE_BK7238_SPI_FIX4")
+if "IONE_BK7238_SPI_FIX4" not in text:
+    text = text.replace("/* IONE_BK7238_SPI_FIX", "/* IONE_BK7238_SPI_FIX4", 1)
 
-text = text.replace("IONE_BK7238_SPI_FIX2", "IONE_BK7238_SPI_FIX3")
-
-if "IONE_BK7238_SPI_FIX3" not in text:
-    sys.exit("ERROR: FIX3 marker missing")
+if "HLW8112_SPI_Set3Wire" in text:
+    sys.exit("ERROR: Set3Wire still present (boot loop risk)")
 
 HLW.write_text(text, encoding="utf-8")
-print("HLW8112 patch v3 OK")
+print("HLW8112 patch v4 OK")
 
-# drv_spi.c: recv-only 시 0xFF 더미 TX (BK7238 DMA SPI)
+# drv_spi.c: recv-only 더미 TX
 if SPI.is_file():
     spi = SPI.read_text(encoding="utf-8")
     old_read = """#elif PLATFORM_BEKEN_NEW
@@ -160,12 +159,19 @@ if SPI.is_file():
 \tmsg.recv_buf = data;
 \tmsg.recv_len = size;
 \tif(mode == SPI_MASTER)
-\t\treturn bk_spi_master_xfer(&msg); /* IONE_BK7238_SPI_FIX3 */"""
-    if "IONE_BK7238_SPI_FIX3" not in spi and old_read in spi:
-        if "#include <string.h>" not in spi:
-            spi = spi.replace('#include "../logging/logging.h"\n', '#include "../logging/logging.h"\n#include <string.h>\n', 1)
-        spi = spi.replace(old_read, new_read, 1)
+\t\treturn bk_spi_master_xfer(&msg); /* IONE_BK7238_SPI_FIX4 */"""
+    if "IONE_BK7238_SPI_FIX4" not in spi:
+        if old_read in spi:
+            if "#include <string.h>" not in spi:
+                spi = spi.replace(
+                    '#include "../logging/logging.h"\n',
+                    '#include "../logging/logging.h"\n#include <string.h>\n',
+                    1,
+                )
+            spi = spi.replace(old_read, new_read, 1)
+        elif "IONE_BK7238_SPI_FIX3" in spi:
+            spi = spi.replace("IONE_BK7238_SPI_FIX3", "IONE_BK7238_SPI_FIX4")
         SPI.write_text(spi, encoding="utf-8")
         print("drv_spi.c ReadBytes dummy-TX patch OK")
 
-print("IONE BK7238 HLW8112 SPI patch v3 applied OK")
+print("IONE BK7238 HLW8112 SPI patch v4 applied OK")

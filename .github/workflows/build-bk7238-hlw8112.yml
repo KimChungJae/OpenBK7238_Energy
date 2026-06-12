@@ -30,17 +30,19 @@ jobs:
             exit 1
           fi
           python3 "$PY"
-          grep -q "IONE_BK7238_SPI_FIX3" src/driver/drv_hlw8112.c || (echo "ERROR: patch verify failed" && exit 1)
-          grep -q "HLW8112_SPI_Set3Wire();" src/driver/drv_hlw8112.c || (echo "ERROR: 3-wire SPI call missing" && exit 1)
+          grep -q "IONE_BK7238_SPI_FIX4" src/driver/drv_hlw8112.c || (echo "ERROR: patch verify failed" && exit 1)
+          grep -q "HLW8112_SPI_EnableGpio();" src/driver/drv_hlw8112.c || (echo "ERROR: GPIO enable call missing" && exit 1)
+          ! grep -q "HLW8112_SPI_Set3Wire" src/driver/drv_hlw8112.c || (echo "ERROR: Set3Wire must not be present" && exit 1)
 
       - name: Build OpenBK7238 hlw8112
         run: |
           SHA="$(git rev-parse --short=12 HEAD)"
-          APP_VER="${SHA}_hlw8112_spifix3"
+          APP_VER="${SHA}_hlw8112_spifix4"
           echo "APP_VERSION=${APP_VER}"
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
           mkdir -p artifact
           cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/
+          cp "output/${APP_VER}/OpenBK7238_QIO_${APP_VER}.bin" artifact/ 2>/dev/null || true
           ls -la artifact/
 
       - name: Upload RBL
