@@ -85,6 +85,153 @@ static int32_t HLW8112_24BitTo32Bit(uint32_t value) {
 
 #pragma region HLW8112 register lowlevel ops
 
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+#include "arm_arch.h"
+#include "drv_model_pub.h"
+#include "gpio_pub.h"
+#include "icu_pub.h"
+#include "spi_pub.h"
+#include "spi_bk7231n.h"
+
+/* IONE_BK7238_SPI_FIX5 — BK7238 DMA SPI 미동작, FIFO 폴링 + 3-wire write-then-read */
+static void HLW8112_SPI_EnableGpio(void) {
+	uint32_t val;
+	val = GFUNC_MODE_SPI_GPIO_14;
+	sddev_control(GPIO_DEV_NAME, CMD_GPIO_ENABLE_SECOND, &val);
+	val = GFUNC_MODE_SPI_GPIO_16_17;
+	sddev_control(GPIO_DEV_NAME, CMD_GPIO_ENABLE_SECOND, &val);
+	UINT32 param = PCLK_POSI_SPI;
+	sddev_control(ICU_DEV_NAME, CMD_CONF_PCLK_26M, &param);
+	param = PWD_SPI_CLK_BIT;
+	sddev_control(ICU_DEV_NAME, CMD_CLK_PWR_UP, &param);
+}
+
+static void hlw8112_spi_reg_bit(uint32_t reg, uint32_t bit, int on) {
+	uint32_t v = REG_READ(reg);
+	if (on)
+		v |= bit;
+	else
+		v &= ~bit;
+	REG_WRITE(reg, v);
+}
+
+static void hlw8112_spi_rxfifo_clr(void) {
+	uint32_t st = REG_READ(SPI_STAT);
+	while (st & RXFIFO_RD_READ) {
+		REG_READ(SPI_DAT);
+		st = REG_READ(SPI_STAT);
+	}
+}
+
+static void hlw8112_spi_txfifo_clr(void) {
+	uint32_t v = REG_READ(SPI_STAT);
+	v |= TXFIFO_CLR_EN;
+	REG_WRITE(SPI_STAT, v);
+}
+
+static int hlw8112_spi_write_byte(uint8_t b) {
+	int timeout = 20000;
+	while (timeout-- > 0) {
+		if (REG_READ(SPI_STAT) & TXFIFO_WR_READ) {
+			REG_WRITE(SPI_DAT, b);
+			return 0;
+		}
+	}
+	return -6;
+}
+
+static int hlw8112_spi_read_byte(uint8_t *b) {
+	int timeout = 20000;
+	while (timeout-- > 0) {
+		if (REG_READ(SPI_STAT) & RXFIFO_RD_READ) {
+			if (b)
+				*b = (uint8_t)REG_READ(SPI_DAT);
+			else
+				REG_READ(SPI_DAT);
+			return 0;
+		}
+	}
+	return -6;
+}
+
+static void hlw8112_spi_set_clock(uint32_t hz) {
+	const uint32_t src = 26000000;
+	uint32_t div = src / 2 / hz;
+	if (div < 1)
+		div = 1;
+	if (div > 255)
+		div = 255;
+	uint32_t ctrl = REG_READ(SPI_CTRL);
+	ctrl &= ~(SPI_CKR_MASK << SPI_CKR_POSI);
+	ctrl |= (div << SPI_CKR_POSI);
+	REG_WRITE(SPI_CTRL, ctrl);
+}
+
+static void HLW8112_BK7238_PollSpiConfigure(void) {
+	HLW8112_SPI_EnableGpio();
+	REG_WRITE(SPI_CTRL, RXOVR_EN | TXOVR_EN);
+	hlw8112_spi_reg_bit(SPI_CTRL, MSTEN, 0);
+	hlw8112_spi_reg_bit(SPI_CTRL, BIT_WDTH, 0);
+	hlw8112_spi_set_clock(HLW8112_SPI_BAUD_RATE);
+	/* mode2: CPOL=1 CPHA=0 */
+	hlw8112_spi_reg_bit(SPI_CTRL, CKPOL, 1);
+	hlw8112_spi_reg_bit(SPI_CTRL, CKPHA, 0);
+	/* 3-wire */
+	{
+		uint32_t ctrl = REG_READ(SPI_CTRL);
+		ctrl &= ~CTRL_NSSMD_3;
+		ctrl |= CTRL_NSSMD_3;
+		REG_WRITE(SPI_CTRL, ctrl);
+	}
+	hlw8112_spi_reg_bit(SPI_CTRL, TXINT_EN, 0);
+	hlw8112_spi_reg_bit(SPI_CTRL, RXINT_EN, 0);
+	hlw8112_spi_reg_bit(SPI_CTRL, MSTEN, 1);
+	hlw8112_spi_reg_bit(SPI_CTRL, SPIEN, 1);
+	{
+		uint32_t cfg = REG_READ(SPI_CONFIG);
+		cfg |= SPI_TX_EN | SPI_RX_EN;
+		REG_WRITE(SPI_CONFIG, cfg);
+	}
+	hlw8112_spi_txfifo_clr();
+	hlw8112_spi_rxfifo_clr();
+}
+
+static void HLW8112_BK7238_PollSpiShutdown(void) {
+	hlw8112_spi_reg_bit(SPI_CTRL, SPIEN, 0);
+	UINT32 param = PWD_SPI_CLK_BIT;
+	sddev_control(ICU_DEV_NAME, CMD_CLK_PWR_DOWN, &param);
+}
+
+static int HLW8112_BK7238_PollXfer(const uint8_t *tx, uint32_t txSize, uint8_t *rx, uint32_t rxSize) {
+	uint32_t i;
+	int r;
+	hlw8112_spi_txfifo_clr();
+	hlw8112_spi_rxfifo_clr();
+	if (txSize && tx) {
+		for (i = 0; i < txSize; i++) {
+			r = hlw8112_spi_write_byte(tx[i]);
+			if (r)
+				return r;
+			r = hlw8112_spi_read_byte(NULL);
+			if (r)
+				return r;
+		}
+	}
+	if (rxSize && rx) {
+		for (i = 0; i < rxSize; i++) {
+			r = hlw8112_spi_write_byte(0xFF);
+			if (r)
+				return r;
+			r = hlw8112_spi_read_byte(&rx[i]);
+			if (r)
+				return r;
+		}
+	}
+	return 0;
+}
+#endif
+
 void HLW8112_SPI_Txn_Begin(void) {
 	HAL_PIN_SetOutputValue(GPIO_HLW_SCSN, 0); 
 }
@@ -94,23 +241,36 @@ void HLW8112_SPI_Txn_End(void) {
 }
 
 int HLW8112_SPI_ReadBytes(uint8_t *buffer, uint32_t size) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	int Result = HLW8112_BK7238_PollXfer(NULL, 0, buffer, size);
+#else
 	int Result = SPI_ReadBytes(buffer, size);
+#endif
 	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Read result %x", Result);
 	return Result;
 }
 
 int HLW8112_SPI_WriteBytes(uint8_t *data, uint32_t size) {
-  	int Result = SPI_WriteBytes(data, size);
-  	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Write result %x", Result);
-  	return Result;
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	int Result = HLW8112_BK7238_PollXfer(data, size, NULL, 0);
+#else
+	int Result = SPI_WriteBytes(data, size);
+#endif
+	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Write result %x", Result);
+	return Result;
 }
 
 int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, uint32_t rxSize) {
-  	HLW8112_SPI_Txn_Begin();
-  	int Result = SPI_Transmit(txBuffer, txSize, rxBuffer, rxSize);
-  	HLW8112_SPI_Txn_End();
-  	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Transact result %d", Result);
-  	return Result;
+	/* IONE_BK7238_SPI_FIX5 */
+	HLW8112_SPI_Txn_Begin();
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	int Result = HLW8112_BK7238_PollXfer((const uint8_t *)txBuffer, txSize, rxBuffer, rxSize);
+#else
+	int Result = SPI_Transmit(txBuffer, txSize, rxBuffer, rxSize);
+#endif
+	HLW8112_SPI_Txn_End();
+	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Transact result %d", Result);
+	return Result;
 }
 #pragma endregion
 
@@ -793,8 +953,12 @@ int HLW8112_InitReg() {
 
 void HLW8112SPI_Stop(void) {
 	HLW8112_Save_Statistics();
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_BK7238_PollSpiShutdown();
+#else
 	SPI_Deinit();
 	SPI_DriverDeinit();
+#endif
 }
 
 void HLW8112_Init(void) {
@@ -807,18 +971,20 @@ void HLW8112_Init(void) {
 
 void HLW8112SPI_Init(void) {
 	HLW8112_Init();
-  	SPI_DriverInit();
-
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_BK7238_PollSpiConfigure();
+#else
+	SPI_DriverInit();
 	spi_config_t cfg;
 	cfg.role = SPI_ROLE_MASTER;
 	cfg.bit_width = SPI_BIT_WIDTH_8BITS;
 	cfg.polarity = SPI_POLARITY_HIGH;
-	cfg.phase = SPI_PHASE_1ST_EDGE;
+	cfg.phase = SPI_PHASE_1ST_EDGE; /* IONE_BK7238_SPI_FIX5 mode2 */
 	cfg.wire_mode = SPI_3WIRE_MODE;
 	cfg.baud_rate = HLW8112_SPI_BAUD_RATE;
 	cfg.bit_order = SPI_MSB_FIRST;
 	OBK_SPI_Init(&cfg);
-
+#endif
   	int result = HLW8112_InitReg();
   	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_InitReg result %i", result);
  
