@@ -44,7 +44,9 @@ on:
       - 'scripts/hlw8112_bk7238_tune24.py'
       - 'scripts/hlw8112_bk7238_tune25.py'
       - 'scripts/hlw8112_bk7238_tune26.py'
+      - 'scripts/hlw8112_bk7238_tune27.py'
       - 'src/driver/drv_hlw8112.c'
+      - 'src/driver/drv_main.c'
       - 'src/new_pins.c'
       - 'src/httpserver/new_http.c'
 
@@ -120,9 +122,11 @@ jobs:
 
           python3 scripts/hlw8112_bk7238_tune26.py
 
+          python3 scripts/hlw8112_bk7238_tune27.py
+
           grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
 
-          grep -q "IONE_BK7238_REGFIX25" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX27" src/driver/drv_hlw8112.c
 
           grep -q "g_indexAutoRefreshInterval = 10000" src/httpserver/new_http.c
 
@@ -136,7 +140,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix26"
+          APP_VER="${SHA}_hlw8112_spifix27"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 

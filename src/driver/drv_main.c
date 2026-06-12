@@ -1811,8 +1811,8 @@ bool DRV_IsMeasuringPower() {
 #ifndef OBK_DISABLE_ALL_DRIVERS
 	return DRV_IsRunning("BL0937") || DRV_IsRunning("BL0942")
 		|| DRV_IsRunning("CSE7766") || DRV_IsRunning("TESTPOWER")
-		|| DRV_IsRunning("BL0942SPI") || DRV_IsRunning("RN8209");
-		// || DRV_IsRunning("HLW8112SPI"); TODO messup ha config if enabled
+		|| DRV_IsRunning("BL0942SPI") || DRV_IsRunning("RN8209")
+		|| DRV_IsRunning("HLW8112SPI");
 #else
 	return false;
 #endif

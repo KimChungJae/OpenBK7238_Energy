@@ -21,8 +21,8 @@
 #include "../hal/hal_pins.h"
 #include "../httpserver/hass.h"
 #include "../logging/logging.h"
-#include "../mqtt/new_mqtt.h"
-#include "../new_cfg.h"
+#include "../libraries/obktime/obktime.h"
+#include "../driver/drv_deviceclock.h"
 #include "../new_pins.h"
 
 #include "drv_public.h"
@@ -1375,6 +1375,49 @@ static float HLW8112_RoundChPower(int32_t p_mW) {
 static float HLW8112_RoundChPF(int32_t pf) {
 	return roundf(pf / 1000.0f * 10.0f) * 100.0f;
 }
+
+/* IONE_BK7238_REGFIX27: STM32/Stream GUI — tele/Energy_Meta/SENSOR (Tasmota ENERGY JSON) */
+#ifndef IONE_MQTT_ENERGY_TOPIC
+#define IONE_MQTT_ENERGY_TOPIC "Energy_Meta"
+#endif
+
+static void HLW8112_IoneMqttPublishEnergy(void) {
+	char payload[420];
+	const char *timeStr;
+	float v, cur, p, s, pf, freq, total, reactive;
+	char topic[48];
+
+	if (!Main_HasMQTTConnected())
+		return;
+
+	v = last_update_data.v_rms / 1000.0f;
+	cur = last_update_data.ia_rms / 1000.0f;
+	p = last_update_data.pa / 1000.0f;
+	s = last_update_data.ap / 1000.0f;
+	pf = last_update_data.pf / 1000.0f;
+	freq = last_update_data.freq / 100.0f;
+	total = (float)last_update_data.ea->Import;
+
+	{
+		float pkw = p / 1000.0f;
+		float skw = s / 1000.0f;
+		float q2 = skw * skw - pkw * pkw;
+		reactive = (q2 > 0.0f) ? sqrtf(q2) * 1000.0f : 0.0f;
+		if (p < 0.0f)
+			reactive = -reactive;
+	}
+
+	timeStr = TS2STR(TIME_GetCurrentTime(), TIME_FORMAT_ISO_8601);
+	snprintf(payload, sizeof(payload),
+		"{\"Time\":\"%s\",\"ENERGY\":{"
+		"\"Total\":%.3f,\"Yesterday\":0,\"Today\":0,"
+		"\"Power\":%.1f,\"ApparentPower\":%.1f,\"ReactivePower\":%.1f,"
+		"\"Factor\":%.2f,\"Voltage\":%.1f,\"Current\":%.3f,\"Frequency\":%.1f}}",
+		timeStr, total, p, s, reactive, pf, v, cur, freq);
+
+	snprintf(topic, sizeof(topic), "tele/%s", IONE_MQTT_ENERGY_TOPIC);
+	MQTT_Publish(topic, "SENSOR", payload, 0);
+}
 #endif
 
 static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
@@ -1520,6 +1563,9 @@ void HLW8112_RunEverySecond(void) {
 	last_data = data;
 
     HLW8112_ScaleAndUpdate(&data);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_IoneMqttPublishEnergy();
+#endif
 }
 
 
