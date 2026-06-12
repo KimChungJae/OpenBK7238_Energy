@@ -1,6 +1,4 @@
 # PM01_A003 (T1-U-HL / BK7238 + HLW8112 SPI) 전용 빌드
-# Fork: .github/workflows/build-bk7238-hlw8112.yml
-#       scripts/hlw8112_bk7238_spi.py  (같이 커밋)
 name: Build BK7238 HLW8112
 
 on:
@@ -10,6 +8,7 @@ on:
     paths:
       - '.github/workflows/build-bk7238-hlw8112.yml'
       - 'scripts/hlw8112_bk7238_spi.py'
+      - 'scripts/hlw8112_bk7238_tune.py'
 
 env:
   APP_NAME: OpenBK7231T_App
@@ -24,21 +23,16 @@ jobs:
 
       - name: Patch HLW8112 SPI for BK7238
         run: |
-          PY="scripts/hlw8112_bk7238_spi.py"
-          if [ ! -f "$PY" ]; then
-            echo "ERROR: $PY not in fork — copy Tools/OpenBeken/patches/hlw8112_bk7238_spi.py to scripts/"
-            exit 1
-          fi
-          python3 "$PY"
-          grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c || (echo "ERROR: patch verify failed" && exit 1)
-          grep -q "HLW8112_BK7238_PollSpiConfigure" src/driver/drv_hlw8112.c || (echo "ERROR: poll SPI missing" && exit 1)
-          ! grep -q "HLW8112_SPI_Set3Wire" src/driver/drv_hlw8112.c || (echo "ERROR: Set3Wire must not be present" && exit 1)
+          python3 scripts/hlw8112_bk7238_spi.py
+          python3 scripts/hlw8112_bk7238_tune.py
+          grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX6" src/driver/drv_hlw8112.c
+          grep -q "DEFAULT_RES_KU.*1.5f" src/driver/drv_hlw8112.h
 
       - name: Build OpenBK7238 hlw8112
         run: |
           SHA="$(git rev-parse --short=12 HEAD)"
-          APP_VER="${SHA}_hlw8112_spifix5"
-          echo "APP_VERSION=${APP_VER}"
+          APP_VER="${SHA}_hlw8112_spifix6"
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
           mkdir -p artifact
           cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/

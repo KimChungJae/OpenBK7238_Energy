@@ -40,7 +40,7 @@ void HLW8112_Save_Statistics();
 #define HLW8112_INVALID_REGVALUE  		1 << 23
 #define HLW8112_SAVE_COUNTER 			3600 // 1 * 60 * 60;	// maybe once in a hour
 
-#define DEFAULT_RES_KU 					1.0f
+#define DEFAULT_RES_KU 					1.5f /* IONE PM01_A003 1.5:1 */
 #define DEFAULT_RES_KIA 				0.2f
 #define DEFAULT_RES_KIB 				0.2f
 

@@ -288,15 +288,18 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	uint32_t value = 0x0;
+	/* IONE_BK7238_REGFIX6: 3-wire read 시 선행 0xFF 더미 — 8/16/32-bit는 rx[1]부터 */
+  	int off = (size == 3) ? 0 : 1;
+  	uint32_t value = 0x0;
   	if (size == 4) {
-    	value = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) | ((uint32_t)rx[2] << 8) | ((uint32_t)rx[3]);
+    	value = ((uint32_t)rx[off] << 24) | ((uint32_t)rx[off + 1] << 16)
+    	        | ((uint32_t)rx[off + 2] << 8) | ((uint32_t)rx[off + 3]);
   	} else if (size == 3) {
-    	value = ((uint32_t)rx[0] << 16) | ((uint32_t)rx[1] << 8) | ((uint32_t)rx[2]);
+    	value = ((uint32_t)rx[off] << 16) | ((uint32_t)rx[off + 1] << 8) | ((uint32_t)rx[off + 2]);
   	} else if (size == 2) {
-    	value = ((uint32_t)rx[0] << 8) | ((uint32_t)rx[1]);
+    	value = ((uint32_t)rx[off] << 8) | ((uint32_t)rx[off + 1]);
   	} else {
-    	value = ((uint32_t)rx[0]);
+    	value = ((uint32_t)rx[off]);
   	}
   	*valueResult = value;
   	return result;
@@ -1050,6 +1053,9 @@ void HLW8112_ScalePower(HLW8112_Channel_t channel, uint32_t regValue, int32_t* v
 void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* value){
 	if (regValue == 0) {
 		*value = 0;
+	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
+		/* IONE_BK7238_REGFIX6: 무효 에너지 레지스터 */
+		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
 		double scale = channel == HLW8112_CHANNEL_B ? device.ScaleFactor.b.e : device.ScaleFactor.a.e;
@@ -1120,20 +1126,16 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	last_update_data.pb = power_b;
 
 	HLW8112_SaveFlags_t save =  HLW8112_SAVE_NONE;
-	if (energy_a !=0  ) {
-		ADDLOG_ERROR(LOG_FEATURE_ENERGYMETER, "EA val %08X", data->ea);
-		ADDLOG_ERROR(LOG_FEATURE_ENERGYMETER, "EA scaled val %08X", energy_a);
-		ADDLOG_ERROR(LOG_FEATURE_ENERGYMETER, "Import before %f", energy_acc_a.Import);
+	if (energy_a != 0) {
+		ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "EA val %08X scaled %08X", data->ea, energy_a);
 		if (power_a > 0) {
-			energy_acc_a.Import +=  (double)energy_a / 10000000.0;
+			energy_acc_a.Import += (double)energy_a / 10000000.0;
 			save |= HLW8112_SAVE_A_IMP;
-		}else {
-			energy_acc_a.Export +=  (double)energy_a / 10000000.0;
+		} else {
+			energy_acc_a.Export += (double)energy_a / 10000000.0;
 			save |= HLW8112_SAVE_A_EXP;
 		}
-
-		ADDLOG_ERROR(LOG_FEATURE_ENERGYMETER, "Import after %f", energy_acc_a.Import);
-		}
+	}
 	if (energy_b !=0.0f ) {
 		if (power_b > 0) {
 			energy_acc_b.Import +=  energy_b / 10000000.0;
@@ -1191,6 +1193,7 @@ void HLW8112_RunEverySecond(void) {
 
 
 
+#if HLW8112_SPI_RAWACCESS
 	READ_REG(SYSCON,16);
 	READ_REG(EMUCON,16);
 	READ_REG(HFCONST,16);
@@ -1208,6 +1211,7 @@ void HLW8112_RunEverySecond(void) {
 	READ_REG(PSGAIN,16);
 	READ_REG(PSOS,16);
 	READ_REG(EMUCON2,16);
+#endif
 	
 	last_data = data;
 
