@@ -278,7 +278,7 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX14: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
+/* IONE_BK7238_REGFIX15: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 	(void)rx;
 	(void)reg;
@@ -337,6 +337,34 @@ static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *offOut, int *l
 			HLW8112_BK7238_TryUfreqHz(rx, skip, 1, frqScale, &best, &bestOff, &bestLe, &bestDiff);
 		}
 	}
+	/* RMSU와 동일 24-bit(off=0) 프레임에서 16-bit UFREQ 슬라이스 후보 */
+	{
+		uint32_t raw24 = ((uint32_t)rx[0] << 16) | ((uint32_t)rx[1] << 8) | (uint32_t)rx[2];
+		uint32_t slice[4] = {
+			raw24 & 0xFFFFU,
+			(raw24 >> 8) & 0xFFFFU,
+			((uint32_t)rx[2] << 8) | (uint32_t)rx[3],
+			((uint32_t)rx[3] << 8) | (uint32_t)rx[4],
+		};
+		for (int si = 0; si < 4; si++) {
+			uint32_t v = slice[si];
+			int32_t hz, diff;
+			if (v == 0 || v >= 0xFF00)
+				continue;
+			hz = (int32_t)(frqScale / (double)v);
+			if (hz < 3500 || hz > 8000)
+				continue;
+			diff = hz - 6000;
+			if (diff < 0)
+				diff = -diff;
+			if (best == 0 || diff < bestDiff) {
+				best = v;
+				bestOff = 100 + si;
+				bestLe = -1;
+				bestDiff = diff;
+			}
+		}
+	}
 	if (best != 0) {
 		if (offOut)
 			*offOut = bestOff;
@@ -381,7 +409,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX14 */
+	/* IONE_BK7238_REGFIX15 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -1195,7 +1223,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX14: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX15: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
