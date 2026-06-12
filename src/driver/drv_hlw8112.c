@@ -95,6 +95,20 @@ static int32_t HLW8112_24BitTo32Bit(uint32_t value) {
 #include "spi_pub.h"
 #include "spi_bk7231n.h"
 
+/* IONE_BK7238_REGFIX29: SPI 단일 접근 — RunEverySecond vs spireg/HTTP 동시 접근 시 hang/reboot */
+static SemaphoreHandle_t g_hlw8112_spi_mtx;
+
+static int HLW8112_SpiLock(void) {
+	if (g_hlw8112_spi_mtx == 0)
+		g_hlw8112_spi_mtx = xSemaphoreCreateMutex();
+	return xSemaphoreTake(g_hlw8112_spi_mtx, 5000) == pdTRUE;
+}
+
+static void HLW8112_SpiUnlock(void) {
+	if (g_hlw8112_spi_mtx)
+		xSemaphoreGive(g_hlw8112_spi_mtx);
+}
+
 /* IONE_BK7238_SPI_FIX5 — BK7238 DMA SPI 미동작, FIFO 폴링 + 3-wire write-then-read */
 static void HLW8112_SPI_EnableGpio(void) {
 	uint32_t val;
@@ -267,19 +281,25 @@ static void HLW8112_BK7238_RegGap(void);
 #endif
 
 int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, uint32_t rxSize) {
+	int Result = -1;
 	/* IONE_BK7238_SPI_FIX5 */
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (!HLW8112_SpiLock()) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Transact: SPI busy");
+		return -7;
+	}
 	HLW8112_BK7238_RegGap();
 #endif
 	HLW8112_SPI_Txn_Begin();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	int Result = HLW8112_BK7238_PollXfer((const uint8_t *)txBuffer, txSize, rxBuffer, rxSize);
+	Result = HLW8112_BK7238_PollXfer((const uint8_t *)txBuffer, txSize, rxBuffer, rxSize);
 #else
-	int Result = SPI_Transmit(txBuffer, txSize, rxBuffer, rxSize);
+	Result = SPI_Transmit(txBuffer, txSize, rxBuffer, rxSize);
 #endif
 	HLW8112_SPI_Txn_End();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	HLW8112_BK7238_RegGap();
+	HLW8112_SpiUnlock();
 #endif
 	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_SPI_Transact result %d", Result);
 	return Result;
@@ -820,33 +840,41 @@ static uint32_t HLW8112_BK7238_ParseAt(const uint8_t *rx, int off, uint8_t size)
 }
 
 static commandResult_t HLW8112_CmdSpiRegDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	/* IONE_BK7238_REGFIX29: 진단 전용 — UpdateCoeff(추가 SPI 9회) 제거, 연속 호출 쿨다운 */
 	static const struct { uint8_t reg; uint8_t sz; const char *nm; } tbl[] = {
 		{ HLW8112_REG_RMSU, 3, "RMSU" },
 		{ HLW8112_REG_UFREQ, 2, "UFREQ" },
 		{ HLW8112_REG_RMSIA, 3, "RMSIA" },
 		{ HLW8112_REG_RMSIB, 3, "RMSIB" },
 		{ HLW8112_REG_POWER_PA, 4, "POWER_PA" },
-		{ HLW8112_REG_RMSIAC, 2, "RMSIAC" },
-		{ HLW8112_REG_RMSIBC, 2, "RMSIBC" },
 		{ HLW8112_REG_RMSUC, 2, "RMSUC" },
-		{ HLW8112_REG_POWER_PAC, 2, "POWER_PAC" },
 	};
+	static uint32_t s_spireg_last_ms;
 	uint8_t tx[1];
 	int i;
+	uint32_t now;
 	(void)context; (void)cmd; (void)args; (void)cmdFlags;
+	now = (uint32_t)rtos_get_time();
+	if (s_spireg_last_ms != 0 && (now - s_spireg_last_ms) < 3000U) {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "HLW8112_spireg: 3초 후 다시 실행 (웹/와치독 hang 방지)");
+		return CMD_RES_BAD_ARGUMENT;
+	}
+	s_spireg_last_ms = now;
 	for (i = 0; i < (int)(sizeof(tbl) / sizeof(tbl[0])); i++) {
 		uint8_t rx[5] = { 0 };
 		tx[0] = tbl[i].reg & 0x7F;
-		HLW8112_SPI_Transact(tx, 1, rx, 5);
+		if (HLW8112_SPI_Transact(tx, 1, rx, 5) < 0) {
+			ADDLOG_ERROR(LOG_FEATURE_CMD, "HLW8112_spireg: SPI fail at %s", tbl[i].nm);
+			return CMD_RES_ERROR;
+		}
 		ADDLOG_INFO(LOG_FEATURE_CMD,
 			"SPI %s reg=%02X rx=%02X %02X %02X %02X %02X off0=%u off1=%u",
 			tbl[i].nm, tbl[i].reg, rx[0], rx[1], rx[2], rx[3], rx[4],
 			(unsigned)HLW8112_BK7238_ParseAt(rx, 0, tbl[i].sz),
 			(unsigned)HLW8112_BK7238_ParseAt(rx, 1, tbl[i].sz));
 	}
-	HLW8112_UpdateCoeff();
 	ADDLOG_INFO(LOG_FEATURE_CMD,
-		"scale v=%.6f ia=%.6f ib=%.6f pa=%.6f pb=%.6f frq=%.1f CLKI=%u",
+		"scale(cached) v=%.6f ia=%.6f ib=%.6f pa=%.6f pb=%.6f frq=%.1f CLKI=%u",
 		device.ScaleFactor.v_rms, device.ScaleFactor.a.i, device.ScaleFactor.b.i,
 		device.ScaleFactor.a.p, device.ScaleFactor.b.p, device.ScaleFactor.freq,
 		(unsigned)device.CLKI);
