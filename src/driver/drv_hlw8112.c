@@ -278,7 +278,7 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX13: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
+/* IONE_BK7238_REGFIX14: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 	(void)rx;
 	(void)reg;
@@ -300,7 +300,7 @@ static void HLW8112_BK7238_TryUfreqHz(const uint8_t *rx, int off, int le, double
 	if (v == 0 || v >= 0xFF00)
 		return;
 	hz = (int32_t)(frqScale / (double)v);
-	if (hz < 4500 || hz > 7000)
+	if (hz < 3500 || hz > 8000)
 		return;
 	diff = hz - 6000;
 	if (diff < 0)
@@ -318,10 +318,12 @@ static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *offOut, int *l
 	int bestOff = -1;
 	int bestLe = -1;
 	int32_t bestDiff = 999999;
-	double frqScale = device.ScaleFactor.freq;
-	if (frqScale <= 0)
+	double frqScale;
+	if (device.CLKI > 0)
+		frqScale = (double)device.CLKI * 100.0 / 8.0;
+	else
 		frqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
-	/* off×BE/LE 스캔 + 선행 0xFF 스킵 — 45~70Hz(Ch1 4500~7000)에 가장 가까운 후보 */
+	/* off×BE/LE 스캔 — 35~80Hz(Ch1 3500~8000)에 60Hz(6000)에 가장 가까운 후보 */
 	for (int off = 0; off <= 3; off++) {
 		for (int le = 0; le <= 1; le++)
 			HLW8112_BK7238_TryUfreqHz(rx, off, le, frqScale, &best, &bestOff, &bestLe, &bestDiff);
@@ -379,7 +381,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX13 */
+	/* IONE_BK7238_REGFIX14 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -758,14 +760,23 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 	uint32_t ch1;
 	(void)context; (void)cmd; (void)args; (void)cmdFlags;
 	HLW8112_SPI_Transact(tx, 1, rx, 5);
-	parsed = HLW8112_BK7238_ParseUfreq(rx, &off, &le);
-	frqScale = device.ScaleFactor.freq;
-	if (frqScale <= 0)
+	if (device.CLKI > 0)
+		frqScale = (double)device.CLKI * 100.0 / 8.0;
+	else
 		frqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
+	for (int o = 0; o <= 3; o++) {
+		for (int l = 0; l <= 1; l++) {
+			uint32_t v = HLW8112_BK7238_UfreqPair(rx, o, l);
+			uint32_t hz = v ? (uint32_t)(frqScale / (double)v) : 0;
+			ADDLOG_INFO(LOG_FEATURE_CMD, "  cand off=%d le=%d v=%u hz~%u", o, l, (unsigned)v, (unsigned)hz);
+		}
+	}
+	parsed = HLW8112_BK7238_ParseUfreq(rx, &off, &le);
 	ch1 = parsed ? (uint32_t)(frqScale / (double)parsed) : 0;
 	ADDLOG_INFO(LOG_FEATURE_CMD,
-		"UFREQ dbg rx=%02X %02X %02X %02X %02X off=%d le=%d reg=%u Ch1~%u",
-		rx[0], rx[1], rx[2], rx[3], rx[4], off, le, (unsigned)parsed, (unsigned)ch1);
+		"UFREQ pick rx=%02X %02X %02X %02X %02X CLKI=%u off=%d le=%d reg=%u Ch1~%u V=%d",
+		rx[0], rx[1], rx[2], rx[3], rx[4], (unsigned)device.CLKI, off, le,
+		(unsigned)parsed, (unsigned)ch1, (int)last_update_data.v_rms);
 	return CMD_RES_OK;
 }
 #endif
@@ -1184,7 +1195,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX13: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX14: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
