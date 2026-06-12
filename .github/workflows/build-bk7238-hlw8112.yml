@@ -111,9 +111,11 @@ jobs:
 
           python3 scripts/hlw8112_bk7238_tune23.py
 
+          python3 scripts/hlw8112_bk7238_tune24.py
+
           grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
 
-          grep -q "IONE_BK7238_REGFIX23" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX24" src/driver/drv_hlw8112.c
 
           grep -q "DEFAULT_RES_KU.*1.5f" src/driver/drv_hlw8112.h
 
