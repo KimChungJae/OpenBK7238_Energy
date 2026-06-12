@@ -13,6 +13,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <stdarg.h>
 
 
 #include "../cmnds/cmd_public.h"
@@ -1106,18 +1107,35 @@ static void HLW8112_BK7238_ScalePreview(const HLW8112_Data_t *data,
 	HLW8112_ScaleCurrent(HLW8112_CHANNEL_B, data->ib_rms, ib);
 }
 
+static void HLW8112_CmdHttpLine(const char *fmt, ...) {
+	char buf[220];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	/* IONE_BK7238_REGFIX36: Command Tool은 OK만 보임 — loglevel 무관 HTML 직접 출력 */
+	LOG_PostToCmdHttp(buf);
+	ADDLOG_INFO(LOG_FEATURE_CMD, "%s", buf);
+}
+
 static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
-	/* IONE_BK7238_REGFIX34: Command Tool 다운 방지 — spireg급 경량·5초 쿨다운·채널/flash/MQTT 생략 */
+	/* IONE_BK7238_REGFIX34/36: Command Tool — 경량 SPI·5초 쿨다운·HTML 직접 출력 */
 	static uint32_t s_ufreq_last_ms;
 	HLW8112_Data_t data;
 	int32_t v, f, ia, ib;
 	uint32_t now;
+	unsigned ku_m;
 	commandResult_t res = CMD_RES_OK;
 	(void)context; (void)cmd; (void)args; (void)cmdFlags;
 
+	if (!DRV_IsRunning("HLW8112SPI")) {
+		HLW8112_CmdHttpLine("HLW8112 driver OFF — Startup에 startDriver HLW8112SPI 필요");
+		return CMD_RES_ERROR;
+	}
+
 	now = (uint32_t)rtos_get_time();
 	if (s_ufreq_last_ms != 0 && (now - s_ufreq_last_ms) < 5000U) {
-		ADDLOG_WARN(LOG_FEATURE_CMD, "HLW8112_ufreq: 5초 후 다시 (Web Console 권장)");
+		HLW8112_CmdHttpLine("HLW8112_ufreq: 5초 후 다시");
 		return CMD_RES_BAD_ARGUMENT;
 	}
 	s_ufreq_last_ms = now;
@@ -1127,26 +1145,22 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 			|| HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data.freq) < 0
 			|| HLW8112_ReadRegister24(HLW8112_REG_RMSIA, &data.ia_rms) < 0
 			|| HLW8112_ReadRegister24(HLW8112_REG_RMSIB, &data.ib_rms) < 0) {
-		ADDLOG_ERROR(LOG_FEATURE_CMD, "HLW8112_ufreq: SPI read fail");
+		HLW8112_CmdHttpLine("HLW8112_ufreq: SPI read fail");
 		res = CMD_RES_ERROR;
 	} else {
 		HLW8112_BK7238_ScalePreview(&data, &v, &f, &ia, &ib);
-		/* 웹 표용 캐시만 갱신 — CHANNEL_Set·flash·MQTT는 1Hz 루프에 맡김 */
 		last_update_data.v_rms = v;
 		last_update_data.freq = f;
 		last_update_data.ia_rms = ia;
 		last_update_data.ib_rms = ib;
-		{
-			/* REGFIX35: BK7238 Command Tool printf float 미지원 → 정수 milli 출력 */
-			unsigned ku_m = (unsigned)(device.ResistorCoeff.KU * 1000.0f + 0.5f);
-			ADDLOG_INFO(LOG_FEATURE_CMD,
-				"HLW8112 V=%u.%03uV F=%u.%02uHz IA=%u.%03uA IB=%u.%03uA KU=%u.%03u CLKI=%u",
-				(unsigned)(v / 1000), (unsigned)(v % 1000),
-				(unsigned)(f / 100), (unsigned)(f % 100),
-				(unsigned)(ia / 1000), (unsigned)(ia % 1000),
-				(unsigned)(ib / 1000), (unsigned)(ib % 1000),
-				ku_m / 1000, ku_m % 1000, (unsigned)device.CLKI);
-		}
+		ku_m = (unsigned)(device.ResistorCoeff.KU * 1000.0f + 0.5f);
+		HLW8112_CmdHttpLine(
+			"HLW8112 V=%u.%03uV F=%u.%02uHz IA=%u.%03uA IB=%u.%03uA KU=%u.%03u CLKI=%u",
+			(unsigned)(v / 1000), (unsigned)(v >= 0 ? v % 1000 : 0),
+			(unsigned)(f / 100), (unsigned)(f >= 0 ? f % 100 : 0),
+			(unsigned)(ia / 1000), (unsigned)(ia >= 0 ? ia % 1000 : 0),
+			(unsigned)(ib / 1000), (unsigned)(ib >= 0 ? ib % 1000 : 0),
+			ku_m / 1000, ku_m % 1000, (unsigned)device.CLKI);
 	}
 	HLW8112_DiagEnd();
 	return res;

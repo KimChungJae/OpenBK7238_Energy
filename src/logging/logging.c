@@ -346,6 +346,13 @@ void LOG_SetCommandHTTPRedirectReply(http_request_t* request) {
 	g_log_alsoPrintToHTTP = request;
 }
 
+void LOG_PostToCmdHttp(const char *msg) {
+	if (msg && g_log_alsoPrintToHTTP) {
+		poststr(g_log_alsoPrintToHTTP, msg);
+		poststr(g_log_alsoPrintToHTTP, "<br>");
+	}
+}
+
 
 
 #ifdef PLATFORM_BEKEN
