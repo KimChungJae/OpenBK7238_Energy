@@ -5,18 +5,17 @@ import re
 import sys
 
 HLW = Path("src/driver/drv_hlw8112.c")
-SPI = Path("src/driver/drv_spi.c")
 
 if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_SPI_FIX2" in text:
+if "IONE_BK7238_SPI_FIX2" in text and "HLW8112_SPI_EnableGpio();" in text:
     print("Patch v2 already applied")
     sys.exit(0)
 
 # --- v1 base (skip if v1 already there) ---
-if "IONE_BK7238_SPI_FIX" not in text:
+if "IONE_BK7238_SPI_FIX" not in text and "IONE_BK7238_SPI_FIX2" not in text:
     old_transact = re.compile(
         r"int HLW8112_SPI_Transact\(uint8_t \*txBuffer, uint32_t txSize, uint8_t \*rxBuffer, uint32_t rxSize\) \{\s*"
         r"HLW8112_SPI_Txn_Begin\(\);\s*"
@@ -41,7 +40,6 @@ if "IONE_BK7238_SPI_FIX" not in text:
         sys.exit("ERROR: HLW8112_SPI_Transact pattern not found")
     text = old_transact.sub(new_transact, text, count=1)
 
-    # ReadRegister: BK7238도 Transact(1+5) — BL0942SPI 와 동일 순차 방식
     old_read = re.compile(
         r"int HLW8112_ReadRegister\(uint8_t reg, uint8_t size, uint32_t \*valueResult\) \{\s*"
         r"uint8_t tx\[1\] = \{0xFF\};\s*"
@@ -51,7 +49,6 @@ if "IONE_BK7238_SPI_FIX" not in text:
         re.MULTILINE,
     )
     if not old_read.search(text):
-        # v1 may have changed ReadRegister — normalize back
         old_read_v1 = re.compile(
             r"int HLW8112_ReadRegister\(uint8_t reg, uint8_t size, uint32_t \*valueResult\) \{.*?#endif\s*",
             re.MULTILINE | re.DOTALL,
@@ -66,23 +63,19 @@ if "IONE_BK7238_SPI_FIX" not in text:
             text = old_read_v1.sub(new_read, text, count=1)
         else:
             sys.exit("ERROR: HLW8112_ReadRegister pattern not found")
-    else:
-        pass  # already 1+5 transact
 
     text = text.replace(
         "\tcfg.polarity = SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_1ST_EDGE;\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = HLW8112_SPI_BAUD_RATE;",
         "\tcfg.polarity = SPI_POLARITY_LOW;\n\tcfg.phase = SPI_PHASE_2ND_EDGE; /* IONE_BK7238_SPI_FIX2 BL0942-like */\n\tcfg.wire_mode = SPI_3WIRE_MODE;\n\tcfg.baud_rate = 500000;",
         1,
     )
-else:
+elif "IONE_BK7238_SPI_FIX" in text:
     text = text.replace("IONE_BK7238_SPI_FIX", "IONE_BK7238_SPI_FIX2")
-    # v1 SPI mode -> v2 BL0942-like
     text = text.replace(
         "SPI_POLARITY_HIGH;\n\tcfg.phase = SPI_PHASE_2ND_EDGE; /* IONE_BK7238_SPI_FIX mode3 */\n\tcfg.wire_mode = SPI_4WIRE_MODE;",
         "SPI_POLARITY_LOW;\n\tcfg.phase = SPI_PHASE_2ND_EDGE; /* IONE_BK7238_SPI_FIX2 BL0942-like */\n\tcfg.wire_mode = SPI_3WIRE_MODE;",
         1,
     )
-    # undo v1 direct 5+5 ReadRegister if present
     old_read_v1 = re.compile(
         r"int HLW8112_ReadRegister\(uint8_t reg, uint8_t size, uint32_t \*valueResult\) \{.*?#endif\s*",
         re.MULTILINE | re.DOTALL,
@@ -118,29 +111,30 @@ static void HLW8112_SPI_EnableGpio(void) {
     if anchor not in text:
         sys.exit("ERROR: HLW8112SPI_Init not found")
     text = text.replace(anchor, inc_block + "\n" + anchor, 1)
-    text = text.replace(
-        "void HLW8112SPI_Init(void) {\n\tHLW8112_Init();\n\tSPI_DriverInit();",
-        "void HLW8112SPI_Init(void) {\n\tHLW8112_Init();\n#if PLATFORM_BEKEN_NEW && (PLATFORM_BK7238 || PLATFORM_BK7231N || PLATFORM_BK7252N)\n\tHLW8112_SPI_EnableGpio();\n#endif\n\tSPI_DriverInit();",
-        1,
+
+# Init 호출 삽입 (원본 들여쓰기 혼합 대응)
+if "HLW8112_SPI_EnableGpio();" not in text:
+    init_call = re.compile(
+        r"(void HLW8112SPI_Init\(void\) \{\s*\n\s*HLW8112_Init\(\);\s*\n)"
+        r"(\s*SPI_DriverInit\(\);)",
+        re.MULTILINE,
     )
+    repl = (
+        r"\1#if PLATFORM_BEKEN_NEW && (PLATFORM_BK7238 || PLATFORM_BK7231N || PLATFORM_BK7252N)\n"
+        r"\tHLW8112_SPI_EnableGpio();\n"
+        r"#endif\n"
+        r"\2"
+    )
+    text, n = init_call.subn(repl, text, count=1)
+    if n != 1:
+        sys.exit("ERROR: HLW8112SPI_Init GPIO call insert failed")
 
 if "IONE_BK7238_SPI_FIX2" not in text:
     text = text.replace("IONE_BK7238_SPI_FIX", "IONE_BK7238_SPI_FIX2", 1)
 
+if "HLW8112_SPI_EnableGpio();" not in text:
+    sys.exit("ERROR: HLW8112_SPI_EnableGpio call missing")
+
 HLW.write_text(text, encoding="utf-8")
 print("HLW8112 patch v2 OK")
-
-# --- drv_spi.c: bk_spi_driver_init on BEKEN_NEW ---
-if SPI.is_file():
-    spi = SPI.read_text(encoding="utf-8")
-    if "IONE_BK7238_SPI_FIX2" not in spi:
-        old = "#elif PLATFORM_BEKEN_NEW\n\treturn 0;"
-        new = "#elif PLATFORM_BEKEN_NEW\n\treturn bk_spi_driver_init(); /* IONE_BK7238_SPI_FIX2 */"
-        if old in spi:
-            spi = spi.replace(old, new, 1)
-            SPI.write_text(spi, encoding="utf-8")
-            print("drv_spi.c patch v2 OK")
-        else:
-            print("WARN: drv_spi.c BEKEN_NEW pattern not found — skip")
-
 print("IONE BK7238 HLW8112 SPI patch v2 applied OK")
