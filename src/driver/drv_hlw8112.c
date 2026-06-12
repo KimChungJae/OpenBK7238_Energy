@@ -108,6 +108,7 @@ static uint8_t g_hlw8112_boot_watch_sec;
 static volatile uint8_t g_hlw8112_clear_busy;
 static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX36 */
+/* IONE_BK7238_REGFIX37 */
 
 int HLW8112_InitReg(void);
 
@@ -131,6 +132,13 @@ static void HLW8112_DiagBegin(void) {
 static void HLW8112_DiagEnd(void) {
 	g_hlw8112_spi_fast_gap = 0;
 	g_hlw8112_diag_hold = 0;
+}
+
+/* IONE_BK7238_REGFIX37: ufreq/spireg — 10ms SPI gap 유지 (2ms fast gap은 UFREQ=0) */
+static void HLW8112_DiagBeginSlow(void) {
+	g_hlw8112_diag_hold = 1;
+	g_hlw8112_spi_fast_gap = 0;
+	rtos_delay_milliseconds(50);
 }
 
 /* IONE_BK7238_REGFIX33: SetClock/SetResGain 후 InitReg 반복 금지 — SYSCON 재쓰기로 V=0·측정 깨짐 */
@@ -1141,14 +1149,19 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 	}
 	s_ufreq_last_ms = now;
 
-	HLW8112_DiagBegin();
-	if (HLW8112_ReadRegister24(HLW8112_REG_RMSU, &data.v_rms) < 0
-			|| HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data.freq) < 0
+	/* UFREQ는 SPI gap 10ms 필수 — fast gap(2ms) 사용 시 F=0 */
+	HLW8112_DiagBeginSlow();
+	if (HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data.freq) < 0
+			|| HLW8112_ReadRegister24(HLW8112_REG_RMSU, &data.v_rms) < 0
 			|| HLW8112_ReadRegister24(HLW8112_REG_RMSIA, &data.ia_rms) < 0
 			|| HLW8112_ReadRegister24(HLW8112_REG_RMSIB, &data.ib_rms) < 0) {
 		HLW8112_CmdHttpLine("HLW8112_ufreq: SPI read fail");
 		res = CMD_RES_ERROR;
 	} else {
+		if (data.freq == 0 && data.v_rms != 0) {
+			HLW8112_BK7238_RegGap();
+			(void)HLW8112_ReadRegister16(HLW8112_REG_UFREQ, &data.freq);
+		}
 		HLW8112_BK7238_ScalePreview(&data, &v, &f, &ia, &ib);
 		last_update_data.v_rms = v;
 		last_update_data.freq = f;
@@ -1156,12 +1169,12 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 		last_update_data.ib_rms = ib;
 		ku_m = (unsigned)(device.ResistorCoeff.KU * 1000.0f + 0.5f);
 		HLW8112_CmdHttpLine(
-			"HLW8112 V=%u.%03uV F=%u.%02uHz IA=%u.%03uA IB=%u.%03uA KU=%u.%03u CLKI=%u",
-			(unsigned)(v / 1000), (unsigned)(v >= 0 ? v % 1000 : 0),
-			(unsigned)(f / 100), (unsigned)(f >= 0 ? f % 100 : 0),
-			(unsigned)(ia / 1000), (unsigned)(ia >= 0 ? ia % 1000 : 0),
-			(unsigned)(ib / 1000), (unsigned)(ib >= 0 ? ib % 1000 : 0),
-			ku_m / 1000, ku_m % 1000, (unsigned)device.CLKI);
+			"HLW8112 V=%u.%01uV F=%u.%01uHz IA=%u.%02uA IB=%u.%02uA KU=%u.%03u CLKI=%u uf=%u",
+			(unsigned)(v / 1000), (unsigned)((v % 1000) / 100),
+			(unsigned)(f / 100), (unsigned)((f % 100) / 10),
+			(unsigned)(ia / 1000), (unsigned)((ia % 1000) / 10),
+			(unsigned)(ib / 1000), (unsigned)((ib % 1000) / 10),
+			ku_m / 1000, ku_m % 1000, (unsigned)data.freq);
 	}
 	HLW8112_DiagEnd();
 	return res;
