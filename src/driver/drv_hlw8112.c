@@ -301,12 +301,11 @@ static int HLW8112_BK7238_RxAllFF(const uint8_t *rx) {
 }
 #endif
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX21: 16-bit 계수 CA0B→off0 / F77F→off1 (RMSIAC off=1이면 전류 ~17배 저하) */
+/* IONE_BK7238_REGFIX22: 16-bit 계수 레지스터별 off (0x70/0x71=0, 0x72~=1) + 웹 표 숫자 폭 고정 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
-	(void)reg;
+	(void)rx;
 	if (size == 2) {
-		/* CA 0B 7F FF 패턴: 계수는 rx[0,1] / A4 F7 7F FF: 계수는 rx[1,2] */
-		if (rx[2] == 0x7F && rx[3] == 0xFF && rx[0] >= 0xC0)
+		if (reg == HLW8112_REG_RMSIAC || reg == HLW8112_REG_RMSIBC)
 			return 0;
 		return 1;
 	}
@@ -439,7 +438,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX21 */
+	/* IONE_BK7238_REGFIX22 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -1484,7 +1483,7 @@ void appendBitFlag(char *name, uint32_t regValue, uint8_t bitNum, http_request_t
 
 void appendTableRow(http_request_t *request, char *name,char* unit, int32_t value, int precision, float factor) {
 	hprintf255(request,
-        "<tr><td><b>%s</b></td><td style='text-align: right;'>%.*f</td><td>%s</td></tr>",
+        "<tr><td><b>%s</b></td><td style='text-align:right;min-width:8em;font-variant-numeric:tabular-nums;'>%.*f</td><td>%s</td></tr>",
 		name,   precision, value / factor, unit);
 }
 
@@ -1492,7 +1491,7 @@ void appendTableRow(http_request_t *request, char *name,char* unit, int32_t valu
 
 void appendChannelTableRow(http_request_t *request, char *name,char* unit, float value_a, float value_b, int precision, float factor) {
 	hprintf255(request,
-        "<tr><td><b>%s</b></td><td style='text-align: right;'>%.*f</td><td>%s</td><td style='text-align: right;'>%.*f</td><td>%s</td></tr>",
+        "<tr><td><b>%s</b></td><td style='text-align:right;min-width:7em;font-variant-numeric:tabular-nums;'>%.*f</td><td>%s</td><td style='text-align:right;min-width:7em;font-variant-numeric:tabular-nums;'>%.*f</td><td>%s</td></tr>",
 		name, precision, value_a/ factor, unit,precision, value_b/ factor, unit);
 }
 
