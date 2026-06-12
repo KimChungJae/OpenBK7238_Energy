@@ -107,6 +107,7 @@ static uint8_t g_hlw8112_boot_watch_sec;
 /* IONE_BK7238_REGFIX32: clear_energy 연속 실행·PFCnt verify·flash 겹침 방지 */
 static volatile uint8_t g_hlw8112_clear_busy;
 static uint32_t g_hlw8112_last_clear_ms;
+/* IONE_BK7238_REGFIX36 */
 
 int HLW8112_InitReg(void);
 
