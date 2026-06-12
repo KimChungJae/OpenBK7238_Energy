@@ -1427,6 +1427,19 @@ void CFG_ApplyChannelStartValues() {
 	}
 }
 int ChannelType_GetDecimalPlaces(int type) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	/* IONE HLW8112: 웹/MQTT 0.1 단위 (227.1V, 3.6A) */
+	switch (type) {
+	case ChType_Voltage_div100:
+	case ChType_Current_div1000:
+	case ChType_Frequency_div100:
+	case ChType_Power_div100:
+	case ChType_PowerFactor_div1000:
+		return 1;
+	default:
+		break;
+	}
+#endif
 	int pl;
 
 	int div = ChannelType_GetDivider(type);

@@ -438,7 +438,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX23 */
+	/* IONE_BK7238_REGFIX24 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -1422,8 +1422,37 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	}
     // BL_ProcessUpdate(voltage, current_a, power_a, frequency, energy_a);
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* IONE_BK7238_REGFIX24: 채널/MQTT 0.1 단위 반올림 (227.1V, 3.6A) */
+static float HLW8112_RoundChVoltage(int32_t v_mV) {
+	return roundf(v_mV / 1000.0f * 10.0f) * 10.0f;
+}
+static float HLW8112_RoundChCurrent(int32_t i_mA) {
+	return roundf(i_mA / 1000.0f * 10.0f) * 100.0f;
+}
+static float HLW8112_RoundChFreq(int32_t f) {
+	return roundf(f / 100.0f * 10.0f) * 10.0f;
+}
+static float HLW8112_RoundChPower(int32_t p_mW) {
+	return roundf(p_mW / 1000.0f * 10.0f) * 100.0f;
+}
+static float HLW8112_RoundChPF(int32_t pf) {
+	return roundf(pf / 1000.0f * 10.0f) * 100.0f;
+}
+#endif
+
 	// update
 	
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	CHANNEL_Set(HLW8112_Channel_Voltage, HLW8112_RoundChVoltage(last_update_data.v_rms), 0);
+	CHANNEL_Set(HLW8112_Channel_Frequency, HLW8112_RoundChFreq(last_update_data.freq), 0);
+	CHANNEL_Set(HLW8112_Channel_PowerFactor, HLW8112_RoundChPF(last_update_data.pf), 0);
+	CHANNEL_Set(HLW8112_Channel_current_B, HLW8112_RoundChCurrent(last_update_data.ib_rms), 0);
+	CHANNEL_Set(HLW8112_Channel_current_A, HLW8112_RoundChCurrent(last_update_data.ia_rms), 0);
+	CHANNEL_Set(HLW8112_Channel_power_B, HLW8112_RoundChPower(last_update_data.pb), 0);
+	CHANNEL_Set(HLW8112_Channel_power_A, HLW8112_RoundChPower(last_update_data.pa), 0);
+	CHANNEL_Set(HLW8112_Channel_apparent_power_A, HLW8112_RoundChPower(last_update_data.ap), 0);
+#else
 	CHANNEL_Set(HLW8112_Channel_Voltage, last_update_data.v_rms / 10.0, 0);
 	CHANNEL_Set(HLW8112_Channel_Frequency,last_update_data.freq , 0);
 	CHANNEL_Set(HLW8112_Channel_PowerFactor, last_update_data.pf, 0);
@@ -1432,6 +1461,7 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	CHANNEL_Set(HLW8112_Channel_power_B, last_update_data.pb / 10.0, 0);
 	CHANNEL_Set(HLW8112_Channel_power_A, last_update_data.pa / 10.0, 0);
 	CHANNEL_Set(HLW8112_Channel_apparent_power_A, last_update_data.ap / 10.0, 0);
+#endif
 	CHANNEL_Set(HLW8112_Channel_export_B, last_update_data.eb->Export * 1000, 0);
 	CHANNEL_Set(HLW8112_Channel_export_A, last_update_data.ea->Export * 1000, 0);
 	CHANNEL_Set(HLW8112_Channel_import_B, last_update_data.eb->Import * 1000, 0);
@@ -1560,17 +1590,17 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 	}
 
 	poststr(request, "<hr><table style='width:100%'>");
-	appendTableRow(request, "Voltage", "V", last_update_data.v_rms, 2,1000.0f );
-	appendTableRow(request, "Frequency", "Hz", last_update_data.freq, 2, 100.0f );
-	appendTableRow(request, "Active Power", "W", last_update_data.pa, 3,1000.0f );
-	appendTableRow(request, "Apparent Power", "VA", last_update_data.ap, 3, 1000.0f );
-	appendTableRow(request, "Power Factor", "", last_update_data.pf, 2, 1000.0f );
+	appendTableRow(request, "Voltage", "V", last_update_data.v_rms, 1,1000.0f );
+	appendTableRow(request, "Frequency", "Hz", last_update_data.freq, 1, 100.0f );
+	appendTableRow(request, "Active Power", "W", last_update_data.pa, 1,1000.0f );
+	appendTableRow(request, "Apparent Power", "VA", last_update_data.ap, 1, 1000.0f );
+	appendTableRow(request, "Power Factor", "", last_update_data.pf, 1, 1000.0f );
 	poststr(request, "</table>");
 
 	poststr(request, "<hr><table style='width:100%'>");
 	poststr(request, "<tr><th></th><th>Channel A</th><th></th><th>Channel B</th><th></th></tr>");
-	appendChannelTableRow(request, "Current", "mA", last_update_data.ia_rms, last_update_data.ib_rms, 0,1 );
-	appendChannelTableRow(request, "Active Power", "W", last_update_data.pa, last_update_data.pb, 3,1000 );
+	appendChannelTableRow(request, "Current", "A", last_update_data.ia_rms, last_update_data.ib_rms, 1,1000 );
+	appendChannelTableRow(request, "Active Power", "W", last_update_data.pa, last_update_data.pb, 1,1000 );
 	appendChannelTableRow(request, "Import Energy", "KWh", last_update_data.ea->Import, last_update_data.eb->Import, 4 , 1 );
 	appendChannelTableRow(request, "Export Energy", "KWh", last_update_data.ea->Export, last_update_data.eb->Export, 4 , 1 );
 
