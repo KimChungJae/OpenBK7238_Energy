@@ -1356,6 +1356,25 @@ void HLW8112_ScalePowerFactor(uint32_t regValue, int16_t* value){
 	}
 }
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* IONE_BK7238_REGFIX24: 채널/MQTT 0.1 단위 반올림 (227.1V, 3.6A) */
+static float HLW8112_RoundChVoltage(int32_t v_mV) {
+	return roundf(v_mV / 1000.0f * 10.0f) * 10.0f;
+}
+static float HLW8112_RoundChCurrent(int32_t i_mA) {
+	return roundf(i_mA / 1000.0f * 10.0f) * 100.0f;
+}
+static float HLW8112_RoundChFreq(int32_t f) {
+	return roundf(f / 100.0f * 10.0f) * 10.0f;
+}
+static float HLW8112_RoundChPower(int32_t p_mW) {
+	return roundf(p_mW / 1000.0f * 10.0f) * 100.0f;
+}
+static float HLW8112_RoundChPF(int32_t pf) {
+	return roundf(pf / 1000.0f * 10.0f) * 100.0f;
+}
+#endif
+
 static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 
 	int16_t power_factor;
@@ -1421,25 +1440,6 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 		HLW8112_save_stats(save);
 	}
     // BL_ProcessUpdate(voltage, current_a, power_a, frequency, energy_a);
-
-#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX24: 채널/MQTT 0.1 단위 반올림 (227.1V, 3.6A) */
-static float HLW8112_RoundChVoltage(int32_t v_mV) {
-	return roundf(v_mV / 1000.0f * 10.0f) * 10.0f;
-}
-static float HLW8112_RoundChCurrent(int32_t i_mA) {
-	return roundf(i_mA / 1000.0f * 10.0f) * 100.0f;
-}
-static float HLW8112_RoundChFreq(int32_t f) {
-	return roundf(f / 100.0f * 10.0f) * 10.0f;
-}
-static float HLW8112_RoundChPower(int32_t p_mW) {
-	return roundf(p_mW / 1000.0f * 10.0f) * 100.0f;
-}
-static float HLW8112_RoundChPF(int32_t pf) {
-	return roundf(pf / 1000.0f * 10.0f) * 100.0f;
-}
-#endif
 
 	// update
 	

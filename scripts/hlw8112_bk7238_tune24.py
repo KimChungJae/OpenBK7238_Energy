@@ -10,11 +10,11 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_REGFIX24" in text:
+if "IONE_BK7238_REGFIX24" in text or "HLW8112_RoundChVoltage" in text:
     print("Patch v24 already applied")
     sys.exit(0)
 
-if "IONE_BK7238_REGFIX23" not in text:
+if "IONE_BK7238_REGFIX23" not in text and "IONE_BK7238_REGFIX24" not in text:
     sys.exit("ERROR: apply spifix23 first")
 
 round_fns = """
@@ -39,8 +39,14 @@ static float HLW8112_RoundChPF(int32_t pf) {
 
 """
 
+anchor_fn = "static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {"
+if anchor_fn not in text:
+    sys.exit("ERROR: ScaleAndUpdate not found")
+if "HLW8112_RoundChVoltage" not in text:
+    text = text.replace(anchor_fn, round_fns + anchor_fn, 1)
+
 anchor = "\t// update\n\t\n\tCHANNEL_Set(HLW8112_Channel_Voltage, last_update_data.v_rms / 10.0, 0);"
-new_set = round_fns + """\t// update
+new_set = """\t// update
 	
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 \tCHANNEL_Set(HLW8112_Channel_Voltage, HLW8112_RoundChVoltage(last_update_data.v_rms), 0);
