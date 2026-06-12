@@ -5,6 +5,11 @@ name: Build BK7238 HLW8112
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-bk7238-hlw8112.yml'
+      - 'scripts/hlw8112_bk7238_spi.py'
 
 env:
   APP_NAME: OpenBK7231T_App
