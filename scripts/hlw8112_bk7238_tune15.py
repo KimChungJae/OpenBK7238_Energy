@@ -13,7 +13,7 @@ if "IONE_BK7238_REGFIX15" in text:
     print("Patch v15 already applied")
     sys.exit(0)
 
-if "IONE_BK7238_REGFIX14" not in text:
+if "IONE_BK7238_REGFIX14" not in text and "IONE_BK7238_REGFIX15" not in text:
     sys.exit("ERROR: apply spifix14 first")
 
 insert_after = """\t{
