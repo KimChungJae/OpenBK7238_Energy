@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 ??IONE patch v8 (spifix6 ?�압 복원 + UFREQ�??�속 0xFF ?�킵)
+# BK7238 HLW8112 — IONE patch v8 (spifix6 전압 복원 + UFREQ만 연속 0xFF 스킵)
 from pathlib import Path
 import sys
 
@@ -19,7 +19,7 @@ if "IONE_BK7238_REGFIX7" not in text and "IONE_BK7238_REGFIX6" not in text:
     sys.exit("ERROR: apply spifix6/7 first")
 
 old_helper = """#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX7: 3-wire UFREQ ?????�행 0xFF ?�속 ?�킵 (24-bit ?�압?� rx[0] ?��?) */
+/* IONE_BK7238_REGFIX7: 3-wire UFREQ 등 — 선행 0xFF 연속 스킵 (24-bit 전압은 rx[0] 유지) */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t size) {
 \tint off = 0;
 \tif (size == 3)
@@ -31,7 +31,7 @@ static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t size) {
 #endif"""
 
 new_helper = """#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX8: 24-bit/?�반 16-bit??spifix6(off=0/1), UFREQ�?0xFF ?�속 ?�킵 */
+/* IONE_BK7238_REGFIX8: 24-bit/일반 16-bit는 spifix6(off=0/1), UFREQ만 0xFF 연속 스킵 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 \tint off;
 \tif (size == 3)

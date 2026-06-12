@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 ??IONE patch v15 (UFREQ: 24-bit off=0 ?�라?�스 ?�보 추�?)
+# BK7238 HLW8112 — IONE patch v15 (UFREQ: 24-bit off=0 슬라이스 후보 추가)
 from pathlib import Path
 import sys
 
@@ -35,7 +35,7 @@ new_block = """\t{
 \t\t\tHLW8112_BK7238_TryUfreqHz(rx, skip, 1, frqScale, &best, &bestOff, &bestLe, &bestDiff);
 \t\t}
 \t}
-\t/* RMSU?� ?�일 24-bit(off=0) ?�레?�에??16-bit UFREQ ?�라?�스 ?�보 */
+\t/* RMSU와 동일 24-bit(off=0) 프레임에서 16-bit UFREQ 슬라이스 후보 */
 \t{
 \t\tuint32_t raw24 = ((uint32_t)rx[0] << 16) | ((uint32_t)rx[1] << 8) | (uint32_t)rx[2];
 \t\tuint32_t slice[4] = {

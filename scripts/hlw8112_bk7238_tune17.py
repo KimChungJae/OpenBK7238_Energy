@@ -13,7 +13,7 @@ if "IONE_BK7238_REGFIX17" in text:
     print("Patch v17 already applied")
     sys.exit(0)
 
-if "IONE_BK7238_REGFIX16" not in text:
+if "IONE_BK7238_REGFIX16" not in text and "IONE_BK7238_REGFIX17" not in text:
     sys.exit("ERROR: apply spifix16 first")
 
 old_rx = """static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {

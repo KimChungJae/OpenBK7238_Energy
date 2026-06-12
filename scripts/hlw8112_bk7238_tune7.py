@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 ??IONE patch v7 (UFREQ: ?�속 0xFF ?�킵)
+# BK7238 HLW8112 — IONE patch v7 (UFREQ: 연속 0xFF 스킵)
 from pathlib import Path
 import sys
 
@@ -11,7 +11,7 @@ if not HLW.is_file():
 text = HLW.read_text(encoding="utf-8")
 if ("IONE_BK7238_REGFIX7" in text or "IONE_BK7238_REGFIX8" in text or "IONE_BK7238_REGFIX9" in text
         or "IONE_BK7238_REGFIX10" in text or "IONE_BK7238_REGFIX11" in text or "IONE_BK7238_REGFIX12" in text
-        or "IONE_BK7238_REGFIX13" in text or "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text or "IONE_BK7238_REGFIX16" in text or "IONE_BK7238_REGFIX17" in text):
+        or "IONE_BK7238_REGFIX13" in text or "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text or "IONE_BK7238_REGFIX17" in text):
     print("Patch v7+ already applied")
     sys.exit(0)
 
@@ -20,7 +20,7 @@ if "IONE_BK7238_REGFIX6" not in text and "IONE_BK7238_SPI_FIX5" not in text:
 
 helper = """
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX7: 3-wire UFREQ ?????�행 0xFF ?�속 ?�킵 (24-bit ?�압?� rx[0] ?��?) */
+/* IONE_BK7238_REGFIX7: 3-wire UFREQ 등 — 선행 0xFF 연속 스킵 (24-bit 전압은 rx[0] 유지) */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t size) {
 \tint off = 0;
 \tif (size == 3)
@@ -38,7 +38,7 @@ if "HLW8112_BK7238_RxOffset" not in text:
         sys.exit("ERROR: HLW8112_ReadRegister not found")
     text = text.replace(anchor, helper + "\n" + anchor, 1)
 
-old_off = """\t/* IONE_BK7238_REGFIX6: 3-wire read ???�행 0xFF ?��? ??8/16/32-bit??rx[1]부??*/
+old_off = """\t/* IONE_BK7238_REGFIX6: 3-wire read 시 선행 0xFF 더미 — 8/16/32-bit는 rx[1]부터 */
   	int off = (size == 3) ? 0 : 1;"""
 
 new_off = """\t/* IONE_BK7238_REGFIX7 */
@@ -49,13 +49,13 @@ new_off = """\t/* IONE_BK7238_REGFIX7 */
 #endif"""
 
 if old_off not in text:
-    # v6 미적???�리 ??고정 off=1 블록??교체
+    # v6 미적용 트리 — 고정 off=1 블록도 교체
     old_off = "\tint off = (size == 3) ? 0 : 1;"
     if old_off not in text:
         sys.exit("ERROR: ReadRegister off block not found")
 text = text.replace(old_off, new_off, 1)
 
-# UFREQ 1???�버�?(loglevel 3?�서 rx ?�인)
+# UFREQ 1회 디버그 (loglevel 3에서 rx 확인)
 if "HLW8112_LogUfreqRxOnce" not in text:
     log_fn = """
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238

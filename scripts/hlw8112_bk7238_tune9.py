@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 ??IONE patch v9 (UFREQ: off ?�보 ?�캔 ??45~70Hz ?�택)
+# BK7238 HLW8112 — IONE patch v9 (UFREQ: off 후보 스캔 → 45~70Hz 선택)
 from pathlib import Path
 import sys
 
@@ -19,7 +19,7 @@ if "IONE_BK7238_REGFIX8" not in text:
     sys.exit("ERROR: apply spifix8 first")
 
 old_block = """#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX8: 24-bit/?�반 16-bit??spifix6(off=0/1), UFREQ�?0xFF ?�속 ?�킵 */
+/* IONE_BK7238_REGFIX8: 24-bit/일반 16-bit는 spifix6(off=0/1), UFREQ만 0xFF 연속 스킵 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 \tint off;
 \tif (size == 3)
@@ -35,7 +35,7 @@ static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size)
 #endif"""
 
 new_block = """#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX9: 24-bit/?�반 16-bit off=0/1, UFREQ??rx ?�보 off ?�캔 */
+/* IONE_BK7238_REGFIX9: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 \t(void)rx;
 \t(void)reg;

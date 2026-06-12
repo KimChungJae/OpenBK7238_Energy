@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 ??IONE patch v13 (UFREQ: 45~70Hz Hz ?�코?�링 + ufreq ?�버�?CMD)
+# BK7238 HLW8112 — IONE patch v13 (UFREQ: 45~70Hz Hz 스코어링 + ufreq 디버그 CMD)
 from pathlib import Path
 import sys
 
@@ -21,7 +21,7 @@ old_fn = """static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *of
 \tuint32_t best = 0;
 \tint bestOff = 1;
 \tint bestLe = 0;
-\t/* 60Hz UFREQ reg ??7466 ??BE/LE 모두 ?�캔 (LE 0x2A1D??BE�?10781>9500 ?�락) */
+\t/* 60Hz UFREQ reg 약 7466 — BE/LE 모두 스캔 (LE 0x2A1D는 BE로 10781>9500 탈락) */
 \tfor (int off = 0; off <= 3; off++) {
 \t\tfor (int le = 0; le <= 1; le++) {
 \t\t\tuint32_t v = HLW8112_BK7238_UfreqPair(rx, off, le);
@@ -45,7 +45,7 @@ old_fn = """static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *of
 \t\t*offOut = -1;
 \tif (leOut)
 \t\t*leOut = -1;
-\treturn 0; /* ?�효 UFREQ ?�보 ?�음 ??0xFF80 garbage fallback 금�? */
+\treturn 0; /* 유효 UFREQ 후보 없음 — 0xFF80 garbage fallback 금지 */
 }"""
 
 new_fn = """static void HLW8112_BK7238_TryUfreqHz(const uint8_t *rx, int off, int le, double frqScale,
@@ -76,7 +76,7 @@ static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *offOut, int *l
 \tdouble frqScale = device.ScaleFactor.freq;
 \tif (frqScale <= 0)
 \t\tfrqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
-\t/* off×BE/LE ?�캔 + ?�행 0xFF ?�킵 ??45~70Hz(Ch1 4500~7000)??가??가까운 ?�보 */
+\t/* off×BE/LE 스캔 + 선행 0xFF 스킵 — 45~70Hz(Ch1 4500~7000)에 가장 가까운 후보 */
 \tfor (int off = 0; off <= 3; off++) {
 \t\tfor (int le = 0; le <= 1; le++)
 \t\t\tHLW8112_BK7238_TryUfreqHz(rx, off, le, frqScale, &best, &bestOff, &bestLe, &bestDiff);

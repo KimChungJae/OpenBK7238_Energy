@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# BK7238 HLW8112 ??IONE patch v10 (UFREQ: reg 5500~9500 ?�보 ?�택)
+# BK7238 HLW8112 — IONE patch v10 (UFREQ: reg 5500~9500 후보 선택)
 from pathlib import Path
 import sys
 
@@ -42,7 +42,7 @@ new_fn = """static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *of
 \tuint32_t fallback = ((uint32_t)rx[1] << 8) | (uint32_t)rx[2];
 \tuint32_t best = 0;
 \tint bestOff = 1;
-\t/* 60Hz(CLKI=3579545) UFREQ reg ??7466, 50Hz ??8959 ??5500~9500 */
+\t/* 60Hz(CLKI=3579545) UFREQ reg 약 7466, 50Hz 약 8959 — 5500~9500 */
 \tfor (int off = 0; off <= 3; off++) {
 \t\tuint32_t v = ((uint32_t)rx[off] << 8) | (uint32_t)rx[off + 1];
 \t\tif (v < 5500 || v > 9500 || v >= 0xFF00)
