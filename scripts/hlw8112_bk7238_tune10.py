@@ -9,8 +9,8 @@ if not HLW.is_file():
     sys.exit("ERROR: drv_hlw8112.c not found")
 
 text = HLW.read_text(encoding="utf-8")
-if "IONE_BK7238_REGFIX10" in text:
-    print("Patch v10 already applied")
+if "IONE_BK7238_REGFIX10" in text or "IONE_BK7238_REGFIX11" in text:
+    print("Patch v10/v11 already applied")
     sys.exit(0)
 
 if "IONE_BK7238_REGFIX9" not in text:

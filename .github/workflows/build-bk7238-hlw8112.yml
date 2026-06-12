@@ -1,55 +1,57 @@
-# PM01_A003 (T1-U-HL / BK7238 + HLW8112 SPI) 전용 빌드
-name: Build BK7238 HLW8112
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/build-bk7238-hlw8112.yml'
-      - 'scripts/hlw8112_bk7238_spi.py'
-      - 'scripts/hlw8112_bk7238_tune.py'
-      - 'scripts/hlw8112_bk7238_tune7.py'
-      - 'scripts/hlw8112_bk7238_tune8.py'
-      - 'scripts/hlw8112_bk7238_tune9.py'
-      - 'scripts/hlw8112_bk7238_tune10.py'
-
-env:
-  APP_NAME: OpenBK7231T_App
-
-jobs:
-  build:
-    name: OpenBK7238 hlw8112
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Source checkout
-        uses: actions/checkout@v4
-
-      - name: Patch HLW8112 SPI for BK7238
-        run: |
-          python3 scripts/hlw8112_bk7238_spi.py
-          python3 scripts/hlw8112_bk7238_tune.py
-          python3 scripts/hlw8112_bk7238_tune7.py
-          python3 scripts/hlw8112_bk7238_tune8.py
-          python3 scripts/hlw8112_bk7238_tune9.py
-          python3 scripts/hlw8112_bk7238_tune10.py
-          grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX10" src/driver/drv_hlw8112.c
-          grep -q "DEFAULT_RES_KU.*1.5f" src/driver/drv_hlw8112.h
-
-      - name: Build OpenBK7238 hlw8112
-        run: |
-          SHA="$(git rev-parse --short=12 HEAD)"
-          APP_VER="${SHA}_hlw8112_spifix10"
-          make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
-          mkdir -p artifact
-          cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/
-          cp "output/${APP_VER}/OpenBK7238_QIO_${APP_VER}.bin" artifact/ 2>/dev/null || true
-          ls -la artifact/
-
-      - name: Upload RBL
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenBK7238_hlw8112_rbl
-          path: artifact/*.rbl
-          if-no-files-found: error
+# PM01_A003 (T1-U-HL / BK7238 + HLW8112 SPI) 전용 빌드
+name: Build BK7238 HLW8112
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-bk7238-hlw8112.yml'
+      - 'scripts/hlw8112_bk7238_spi.py'
+      - 'scripts/hlw8112_bk7238_tune.py'
+      - 'scripts/hlw8112_bk7238_tune7.py'
+      - 'scripts/hlw8112_bk7238_tune8.py'
+      - 'scripts/hlw8112_bk7238_tune9.py'
+      - 'scripts/hlw8112_bk7238_tune10.py'
+      - 'scripts/hlw8112_bk7238_tune11.py'
+
+env:
+  APP_NAME: OpenBK7231T_App
+
+jobs:
+  build:
+    name: OpenBK7238 hlw8112
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Source checkout
+        uses: actions/checkout@v4
+
+      - name: Patch HLW8112 SPI for BK7238
+        run: |
+          python3 scripts/hlw8112_bk7238_spi.py
+          python3 scripts/hlw8112_bk7238_tune.py
+          python3 scripts/hlw8112_bk7238_tune7.py
+          python3 scripts/hlw8112_bk7238_tune8.py
+          python3 scripts/hlw8112_bk7238_tune9.py
+          python3 scripts/hlw8112_bk7238_tune10.py
+          python3 scripts/hlw8112_bk7238_tune11.py
+          grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX11" src/driver/drv_hlw8112.c
+          grep -q "DEFAULT_RES_KU.*1.5f" src/driver/drv_hlw8112.h
+
+      - name: Build OpenBK7238 hlw8112
+        run: |
+          SHA="$(git rev-parse --short=12 HEAD)"
+          APP_VER="${SHA}_hlw8112_spifix11"
+          make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
+          mkdir -p artifact
+          cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/
+          cp "output/${APP_VER}/OpenBK7238_QIO_${APP_VER}.bin" artifact/ 2>/dev/null || true
+          ls -la artifact/
+
+      - name: Upload RBL
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBK7238_hlw8112_rbl
+          path: artifact/*.rbl
+          if-no-files-found: error

@@ -278,7 +278,7 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX10: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
+/* IONE_BK7238_REGFIX11: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 	(void)rx;
 	(void)reg;
@@ -287,41 +287,59 @@ static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size)
 	return 1;
 }
 
-static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *offOut) {
+static uint32_t HLW8112_BK7238_UfreqPair(const uint8_t *rx, int off, int le) {
+	if (le)
+		return ((uint32_t)rx[off + 1] << 8) | (uint32_t)rx[off];
+	return ((uint32_t)rx[off] << 8) | (uint32_t)rx[off + 1];
+}
+
+static uint32_t HLW8112_BK7238_ParseUfreq(const uint8_t *rx, int *offOut, int *leOut) {
 	uint32_t fallback = ((uint32_t)rx[1] << 8) | (uint32_t)rx[2];
 	uint32_t best = 0;
 	int bestOff = 1;
-	/* 60Hz(CLKI=3579545) UFREQ reg 약 7466, 50Hz 약 8959 — 5500~9500 */
+	int bestLe = 0;
+	/* 60Hz UFREQ reg 약 7466 — BE/LE 모두 스캔 (LE 0x2A1D는 BE로 10781>9500 탈락) */
 	for (int off = 0; off <= 3; off++) {
-		uint32_t v = ((uint32_t)rx[off] << 8) | (uint32_t)rx[off + 1];
-		if (v < 5500 || v > 9500 || v >= 0xFF00)
-			continue;
-		if (best == 0 || v < best) {
-			best = v;
-			bestOff = off;
+		for (int le = 0; le <= 1; le++) {
+			uint32_t v = HLW8112_BK7238_UfreqPair(rx, off, le);
+			if (v < 5500 || v > 9500 || v >= 0xFF00)
+				continue;
+			if (best == 0 || v < best) {
+				best = v;
+				bestOff = off;
+				bestLe = le;
+			}
 		}
 	}
 	if (best != 0) {
 		if (offOut)
 			*offOut = bestOff;
+		if (leOut)
+			*leOut = bestLe;
 		return best;
 	}
 	if (offOut)
 		*offOut = bestOff;
+	if (leOut)
+		*leOut = bestLe;
 	return fallback;
 }
 #endif
 
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-static void HLW8112_LogUfreqRxOnce(const uint8_t *rx, uint32_t parsed, int off) {
+static void HLW8112_LogUfreqRxOnce(const uint8_t *rx, uint32_t parsed, int off, int le) {
 	static uint8_t done;
 	if (done)
 		return;
 	done = 1;
-	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
-		"UFREQ rx %02X %02X %02X %02X %02X off=%d val=%u (Ch1 expect ~6000)",
-		rx[0], rx[1], rx[2], rx[3], rx[4], off, (unsigned)parsed);
+	double frqScale = device.ScaleFactor.freq;
+	if (frqScale <= 0)
+		frqScale = (double)DEFAULT_INTERNAL_CLK * 100.0 / 8.0;
+	ADDLOG_WARN(LOG_FEATURE_ENERGYMETER,
+		"UFREQ rx %02X %02X %02X %02X %02X off=%d le=%d val=%u Ch1~%u",
+		rx[0], rx[1], rx[2], rx[3], rx[4], off, le, (unsigned)parsed,
+		(unsigned)(parsed ? (uint32_t)(frqScale / (double)parsed) : 0));
 }
 #endif
 
@@ -337,12 +355,13 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX10 */
+	/* IONE_BK7238_REGFIX11 */
   	uint32_t value = 0x0;
   	int off = 0;
+	int ufreqLe = 0;
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
   	if (reg == HLW8112_REG_UFREQ && size == 2) {
-  		value = HLW8112_BK7238_ParseUfreq(rx, &off);
+  		value = HLW8112_BK7238_ParseUfreq(rx, &off, &ufreqLe);
   	} else {
   		off = HLW8112_BK7238_RxOffset(rx, reg, size);
 #endif
@@ -362,7 +381,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	*valueResult = value;
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	if (reg == HLW8112_REG_UFREQ && size == 2)
-		HLW8112_LogUfreqRxOnce(rx, value, off);
+		HLW8112_LogUfreqRxOnce(rx, value, off, ufreqLe);
 #endif
   	return result;
 }
@@ -1116,7 +1135,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX10: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX11: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
