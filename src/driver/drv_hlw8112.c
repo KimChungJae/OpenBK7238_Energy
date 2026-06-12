@@ -100,6 +100,10 @@ static SemaphoreHandle_t g_hlw8112_spi_mtx;
 /* IONE_BK7238_REGFIX30: spireg 중 1Hz 측정·MQTT·채널로그 일시 중지 (Command Tool 다운 방지) */
 static volatile uint8_t g_hlw8112_diag_hold;
 static uint8_t g_hlw8112_spi_fast_gap;
+/* IONE_BK7238_REGFIX31: cold boot 후 IB=0 감시·재 InitReg */
+static uint8_t g_hlw8112_boot_watch_sec;
+
+int HLW8112_InitReg(void);
 
 static int HLW8112_SpiLock(void) {
 	if (g_hlw8112_spi_mtx == 0)
@@ -121,6 +125,31 @@ static void HLW8112_DiagBegin(void) {
 static void HLW8112_DiagEnd(void) {
 	g_hlw8112_spi_fast_gap = 0;
 	g_hlw8112_diag_hold = 0;
+}
+
+/* IONE_BK7238_REGFIX31: Startup SetClock 직후·IB 미복구 시 InitReg 재실행 */
+static int HLW8112_BK7238_PostInitReg(const char *tag) {
+	int r;
+	rtos_delay_milliseconds(300);
+	r = HLW8112_InitReg();
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "HLW8112 %s InitReg result %d", tag, r);
+	return r;
+}
+
+static void HLW8112_BK7238_WatchChannelB(void) {
+	if (g_hlw8112_boot_watch_sec >= 12)
+		return;
+	g_hlw8112_boot_watch_sec++;
+	/* IA>0.5A·IB=0이면 3·6·10초에 InitReg 재시도 */
+	if (last_update_data.ia_rms > 500 && last_update_data.ib_rms == 0) {
+		if (g_hlw8112_boot_watch_sec == 3 || g_hlw8112_boot_watch_sec == 6
+				|| g_hlw8112_boot_watch_sec == 10) {
+			ADDLOG_WARN(LOG_FEATURE_ENERGYMETER,
+				"HLW8112 IB=0 IA=%d -> InitReg retry (%us)",
+				(int)last_update_data.ia_rms, (unsigned)g_hlw8112_boot_watch_sec);
+			HLW8112_BK7238_PostInitReg("IB-watch");
+		}
+	}
 }
 
 /* IONE_BK7238_SPI_FIX5 — BK7238 DMA SPI 미동작, FIFO 폴링 + 3-wire write-then-read */
@@ -703,8 +732,11 @@ static commandResult_t HLW8112_SetClock(const void *context, const char *cmd, co
 	CFG_SetPowerMeasurementCalibrationInteger(CFG_OBK_CLK,value);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	HLW8112_UpdateCoeff();
-#endif
 	HLW8112_compute_scale_factor();
+	HLW8112_BK7238_PostInitReg("SetClock");
+#else
+	HLW8112_compute_scale_factor();
+#endif
 	return CMD_RES_OK;
 }
 static commandResult_t HLW8112_SetResistorGain(const void *context, const char *cmd, const char *args, int cmdFlags) {
@@ -725,8 +757,11 @@ static commandResult_t HLW8112_SetResistorGain(const void *context, const char *
 	CFG_SetPowerMeasurementCalibrationFloat(CFG_OBK_RES_KIB, device.ResistorCoeff.KIB );
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	HLW8112_UpdateCoeff();
-#endif
 	HLW8112_compute_scale_factor();
+	HLW8112_BK7238_PostInitReg("SetResGain");
+#else
+	HLW8112_compute_scale_factor();
+#endif
 	return CMD_RES_OK;
 }
 static commandResult_t HLW8112_SetEnergyStat(const void *context, const char *cmd, const char *args, int cmdFlags) {
@@ -739,6 +774,15 @@ static commandResult_t HLW8112_SetEnergyStat(const void *context, const char *cm
 	HLW8112_Set_EnergyStat(HLW8112_CHANNEL_B,Tokenizer_GetArgFloat(2),Tokenizer_GetArgFloat(3));
 	return CMD_RES_OK;
 }
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+static commandResult_t HLW8112_CmdReinit(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	(void)context; (void)cmd; (void)args; (void)cmdFlags;
+	g_hlw8112_boot_watch_sec = 0;
+	HLW8112_BK7238_PostInitReg("manual");
+	return CMD_RES_OK;
+}
+#endif
 
 static commandResult_t HLW8112_ClearEnergy(const void *context, const char *cmd, const char *args, int cmdFlags) {
 	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
@@ -960,6 +1004,7 @@ void HLW8112_addCommads(void){
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	CMD_RegisterCommand("HLW8112_ufreq", HLW8112_CmdUfreqDbg, NULL);
 	CMD_RegisterCommand("HLW8112_spireg", HLW8112_CmdSpiRegDbg, NULL);
+	CMD_RegisterCommand("HLW8112_reinit", HLW8112_CmdReinit, NULL);
 #endif
 #if HLW8112_SPI_RAWACCESS
 	//cmddetail:{"name":"HLW8112_write_reg","args":"TODO",
@@ -1272,7 +1317,15 @@ void HLW8112_Init(void) {
 void HLW8112SPI_Init(void) {
 	HLW8112_Init();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	g_hlw8112_boot_watch_sec = 0;
+	/* IONE_BK7238_REGFIX31: HLW8112 전원·아날로그 안정 후 InitReg (cold boot B=0 방지) */
+	rtos_delay_milliseconds(1500);
 	HLW8112_BK7238_PollSpiConfigure();
+	{
+		int r1 = HLW8112_InitReg();
+		int r2 = HLW8112_BK7238_PostInitReg("boot");
+		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "HLW8112 boot InitReg result %d %d", r1, r2);
+	}
 #else
 	SPI_DriverInit();
 	spi_config_t cfg;
@@ -1284,10 +1337,9 @@ void HLW8112SPI_Init(void) {
 	cfg.baud_rate = HLW8112_SPI_BAUD_RATE;
 	cfg.bit_order = SPI_MSB_FIRST;
 	OBK_SPI_Init(&cfg);
+	int result = HLW8112_InitReg();
+	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_InitReg result %i", result);
 #endif
-  	int result = HLW8112_InitReg();
-  	ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "HLW8112_InitReg result %i", result);
- 
 }
 #pragma endregion
 
@@ -1622,6 +1674,7 @@ void HLW8112_RunEverySecond(void) {
 
     HLW8112_ScaleAndUpdate(&data);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_BK7238_WatchChannelB();
 	HLW8112_IoneMqttPublishEnergy();
 #endif
 }
