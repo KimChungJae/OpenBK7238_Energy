@@ -10,7 +10,7 @@ if not HLW.is_file():
 
 text = HLW.read_text(encoding="utf-8")
 if ("IONE_BK7238_REGFIX12" in text or "IONE_BK7238_REGFIX13" in text
-        or "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text):
+        or "IONE_BK7238_REGFIX14" in text or "IONE_BK7238_REGFIX15" in text or "IONE_BK7238_REGFIX16" in text):
     print("Patch v12/v13 already applied")
     sys.exit(0)
 

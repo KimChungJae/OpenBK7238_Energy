@@ -278,13 +278,13 @@ int HLW8112_SPI_Transact(uint8_t *txBuffer, uint32_t txSize, uint8_t *rxBuffer, 
 
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-/* IONE_BK7238_REGFIX15: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
+/* IONE_BK7238_REGFIX16: 24-bit/일반 16-bit off=0/1, UFREQ는 rx 후보 off 스캔 */
 static int HLW8112_BK7238_RxOffset(const uint8_t *rx, uint8_t reg, uint8_t size) {
 	(void)rx;
 	(void)reg;
-	if (size == 3)
-		return 0;
-	return 1;
+	(void)size;
+	/* BK7238 3-wire SPI: 유효 데이터는 rx[0]부터 (RMSU와 동일) */
+	return 0;
 }
 
 static uint32_t HLW8112_BK7238_UfreqPair(const uint8_t *rx, int off, int le) {
@@ -409,7 +409,7 @@ int HLW8112_ReadRegister(uint8_t reg, uint8_t size, uint32_t *valueResult) {
   	}
   	HLW8112_Print_Array(rx, 5);
   
-	/* IONE_BK7238_REGFIX15 */
+	/* IONE_BK7238_REGFIX16 */
   	uint32_t value = 0x0;
   	int off = 0;
 	int ufreqLe = 0;
@@ -779,6 +779,51 @@ static commandResult_t HLW8112_a(const void *context, const char *cmd, const cha
 #endif
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+static uint32_t HLW8112_BK7238_ParseAt(const uint8_t *rx, int off, uint8_t size) {
+	if (size == 4)
+		return ((uint32_t)rx[off] << 24) | ((uint32_t)rx[off + 1] << 16)
+		       | ((uint32_t)rx[off + 2] << 8) | (uint32_t)rx[off + 3];
+	if (size == 3)
+		return ((uint32_t)rx[off] << 16) | ((uint32_t)rx[off + 1] << 8) | (uint32_t)rx[off + 2];
+	if (size == 2)
+		return ((uint32_t)rx[off] << 8) | (uint32_t)rx[off + 1];
+	return (uint32_t)rx[off];
+}
+
+static commandResult_t HLW8112_CmdSpiRegDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	static const struct { uint8_t reg; uint8_t sz; const char *nm; } tbl[] = {
+		{ HLW8112_REG_RMSU, 3, "RMSU" },
+		{ HLW8112_REG_UFREQ, 2, "UFREQ" },
+		{ HLW8112_REG_RMSIA, 3, "RMSIA" },
+		{ HLW8112_REG_RMSIB, 3, "RMSIB" },
+		{ HLW8112_REG_POWER_PA, 4, "POWER_PA" },
+		{ HLW8112_REG_RMSIAC, 2, "RMSIAC" },
+		{ HLW8112_REG_RMSIBC, 2, "RMSIBC" },
+		{ HLW8112_REG_RMSUC, 2, "RMSUC" },
+		{ HLW8112_REG_POWER_PAC, 2, "POWER_PAC" },
+	};
+	uint8_t tx[1];
+	int i;
+	(void)context; (void)cmd; (void)args; (void)cmdFlags;
+	for (i = 0; i < (int)(sizeof(tbl) / sizeof(tbl[0])); i++) {
+		uint8_t rx[5] = { 0 };
+		tx[0] = tbl[i].reg & 0x7F;
+		HLW8112_SPI_Transact(tx, 1, rx, 5);
+		ADDLOG_INFO(LOG_FEATURE_CMD,
+			"SPI %s reg=%02X rx=%02X %02X %02X %02X %02X off0=%u off1=%u",
+			tbl[i].nm, tbl[i].reg, rx[0], rx[1], rx[2], rx[3], rx[4],
+			(unsigned)HLW8112_BK7238_ParseAt(rx, 0, tbl[i].sz),
+			(unsigned)HLW8112_BK7238_ParseAt(rx, 1, tbl[i].sz));
+	}
+	HLW8112_UpdateCoeff();
+	ADDLOG_INFO(LOG_FEATURE_CMD,
+		"scale v=%.6f ia=%.6f ib=%.6f pa=%.6f pb=%.6f frq=%.1f CLKI=%u",
+		device.ScaleFactor.v_rms, device.ScaleFactor.a.i, device.ScaleFactor.b.i,
+		device.ScaleFactor.a.p, device.ScaleFactor.b.p, device.ScaleFactor.freq,
+		(unsigned)device.CLKI);
+	return CMD_RES_OK;
+}
+
 static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd, const char *args, int cmdFlags) {
 	uint8_t tx[1] = { HLW8112_REG_UFREQ & 0x7F };
 	uint8_t rx[5] = { 0 };
@@ -832,6 +877,7 @@ void HLW8112_addCommads(void){
     CMD_RegisterCommand("clear_energy", HLW8112_ClearEnergy, NULL);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	CMD_RegisterCommand("HLW8112_ufreq", HLW8112_CmdUfreqDbg, NULL);
+	CMD_RegisterCommand("HLW8112_spireg", HLW8112_CmdSpiRegDbg, NULL);
 #endif
 #if HLW8112_SPI_RAWACCESS
 	//cmddetail:{"name":"HLW8112_write_reg","args":"TODO",
@@ -1223,7 +1269,7 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	if (regValue == 0) {
 		*value = 0;
 	} else if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE)) {
-		/* IONE_BK7238_REGFIX15: 무효 에너지 레지스터 */
+		/* IONE_BK7238_REGFIX16: 무효 에너지 레지스터 */
 		*value = 0;
 	} else {
 		int32_t rv = HLW8112_24BitTo32Bit(regValue);
