@@ -120,6 +120,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX46: tele/SENSOR Export_A/B — 역송·태양광 누적 kWh */
 /* IONE_BK7238_REGFIX47: tele/SENSOR = Web MQTT Client Topic */
 /* IONE_BK7238_REGFIX48: HLW8112_phase CLI — PHASEA/B 위상 보정 (RAWACCESS 불필요) */
+/* IONE_BK7238_REGFIX49: HLW8112_phase — SPI 성공(0) 오판 수정 + 쓰기 중 RunEverySecond SPI 차단 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -1107,8 +1108,12 @@ static commandResult_t HLW8112_CmdPhase(const void *context, const char *cmd, co
 	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
 
 	if (Tokenizer_GetArgsCount() == 0 || (Tokenizer_GetArgsCount() == 1 && !strcmp(Tokenizer_GetArg(0), "read"))) {
-		if (HLW8112_ReadRegister8(HLW8112_REG_PHASEA, &pa) < 0 || HLW8112_ReadRegister8(HLW8112_REG_PHASEB, &pb) < 0)
+		HLW8112_DiagBeginSlow();
+		if (HLW8112_ReadRegister8(HLW8112_REG_PHASEA, &pa) < 0 || HLW8112_ReadRegister8(HLW8112_REG_PHASEB, &pb) < 0) {
+			HLW8112_DiagEnd();
 			return CMD_RES_BAD_ARGUMENT;
+		}
+		HLW8112_DiagEnd();
 		ADDLOG_INFO(LOG_FEATURE_CMD, "PHASEA=%u PHASEB=%u (0~255, PF 낮으면 5~10씩 증가)", (unsigned)pa, (unsigned)pb);
 		return CMD_RES_OK;
 	}
@@ -1128,9 +1133,23 @@ static commandResult_t HLW8112_CmdPhase(const void *context, const char *cmd, co
 		return CMD_RES_BAD_ARGUMENT;
 	}
 
+	HLW8112_DiagBeginSlow();
 	w = HLW8112_WriteRegister8(reg, (uint8_t)val);
-	if (w == 0)
+	/* PollXfer 성공=0 — 0을 실패로 오판하지 않음; verify 실패만 -2/-3 */
+	if ((int8_t)w < 0) {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "PHASE write fail reg=0x%02X val=%d wr=%d", reg, val, (int)(int8_t)w);
+		HLW8112_DiagEnd();
 		return CMD_RES_BAD_ARGUMENT;
+	}
+	{
+		uint8_t rb = 0;
+		if (HLW8112_ReadRegister8(reg, &rb) < 0 || rb != (uint8_t)val) {
+			ADDLOG_WARN(LOG_FEATURE_CMD, "PHASE verify fail reg=0x%02X want=%d got=%u", reg, val, (unsigned)rb);
+			HLW8112_DiagEnd();
+			return CMD_RES_BAD_ARGUMENT;
+		}
+	}
+	HLW8112_DiagEnd();
 
 	if (reg == HLW8112_REG_PHASEA)
 		device.EX_REGiSTERS._PHASEA = (uint32_t)val;
