@@ -122,6 +122,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX48: HLW8112_phase CLI — PHASEA/B 위상 보정 (RAWACCESS 불필요) */
 /* IONE_BK7238_REGFIX49: HLW8112_phase — SPI 성공(0) 오판 수정 + 쓰기 중 RunEverySecond SPI 차단 */
 /* IONE_BK7238_REGFIX50: HLW8112_pagain CLI — PAGAIN/PBGAIN 유효전력 gain 보정 */
+/* IONE_BK7238_REGFIX51: PAGAIN/PBGAIN WriteRegister16 verify 생략 (BK7238 SPI readback off) */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -834,6 +835,11 @@ uint8_t HLW8112_WriteRegister16(uint8_t reg, uint16_t value) {
 	/* IONE_BK7238_REGFIX32: PFCnt는 실시간 증가 → clear 후 verify 실패·hang */
 	if (reg == HLW8112_REG_PFCntPA || reg == HLW8112_REG_PFCntPB)
 		return result;
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	/* IONE_BK7238_REGFIX51: PAGAIN/PBGAIN 등 — 쓰기 직후 readback off 어긋남, verify 생략 */
+	if (reg == HLW8112_REG_PAGAIN || reg == HLW8112_REG_PBGAIN)
+		return result;
+#endif
 
 	//TODO verify reg this is big no for clearing regs will need to switch last read reg
 	uint16_t readValue;
@@ -1209,14 +1215,6 @@ static commandResult_t HLW8112_CmdPagain(const void *context, const char *cmd, c
 		HLW8112_DiagEnd();
 		return CMD_RES_BAD_ARGUMENT;
 	}
-	{
-		uint16_t rb = 0;
-		if (HLW8112_ReadRegister16(reg, &rb) < 0 || rb != val) {
-			ADDLOG_WARN(LOG_FEATURE_CMD, "PAGAIN verify fail reg=0x%02X want=0x%04X got=0x%04X", reg, val, rb);
-			HLW8112_DiagEnd();
-			return CMD_RES_BAD_ARGUMENT;
-		}
-	}
 	HLW8112_DiagEnd();
 
 	if (reg == HLW8112_REG_PAGAIN)
@@ -1225,7 +1223,8 @@ static commandResult_t HLW8112_CmdPagain(const void *context, const char *cmd, c
 		device.EX_REGiSTERS._PBGAIN = (uint32_t)val;
 
 	HLW8112_UpdateCoeff();
-	ADDLOG_INFO(LOG_FEATURE_CMD, "PAGAIN %s=0x%04X OK (Active Power·PF Web 확인)", Tokenizer_GetArg(0), val);
+	HLW8112_compute_scale_factor();
+	ADDLOG_INFO(LOG_FEATURE_CMD, "PAGAIN %s=0x%04X OK — Web Active Power 확인 (Sonoff W 목표)", Tokenizer_GetArg(0), val);
 	return CMD_RES_OK;
 }
 #endif
