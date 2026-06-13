@@ -18,7 +18,7 @@ if "IONE_BK7238_REGFIX45" not in text:
 
 need = [
     "IONE_BK7238_REGFIX46",
-    '"Export_A":%.3f,"Export_B":%.3f',
+    '\\"Export_A\\":%.3f,\\"Export_B\\":%.3f',
     "export_a = (float)last_update_data.ea->Export",
     "export_b = (float)last_update_data.eb->Export",
 ]

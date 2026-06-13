@@ -166,8 +166,10 @@ jobs:
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
-          grep -q '"Export_A":%.3f,"Export_B":%.3f' src/driver/drv_hlw8112.c
+          grep -q '\\"Export_A\\":%.3f,\\"Export_B\\":%.3f' src/driver/drv_hlw8112.c
           grep -q '"Power Factor", "%"' src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX43" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX44" src/driver/drv_hlw8112.c
           grep -q "HLW8112_LocalYmd" src/driver/drv_hlw8112.c
           grep -q "HLW8112_PeriodicFlashSave" src/driver/drv_hlw8112.c
           grep -q "Today_A" src/driver/drv_hlw8112.c
