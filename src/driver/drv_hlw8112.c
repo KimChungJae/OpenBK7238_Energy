@@ -112,6 +112,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX38: teleperiod — tele/Energy_Meta_2CH/SENSOR MQTT 주기(초), Tasmota 호환 */
 /* IONE_BK7238_REGFIX39: 채널 MQTT 1Hz 차단 — teleperiod만 tele/SENSOR 주기 적용 */
 /* IONE_BK7238_REGFIX40: flash 쓰레기 teleperiod 제거·MQTT 연결/teleperiod 시 즉시 1회 발행 */
+/* IONE_BK7238_REGFIX41: tele/SENSOR 2CH — Power_B·Current_B·Total_B 추가 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 static uint16_t g_hlw8112_teleperiod_sec = 10;
 static uint16_t g_hlw8112_tele_tick;
@@ -1778,43 +1779,55 @@ static float HLW8112_RoundChPF(int32_t pf) {
 #endif
 
 static void HLW8112_IoneMqttPublishEnergy(void) {
-	char payload[420];
+	char payload[640];
 	const char *timeStr;
-	float v, cur, p, s, pf, freq, total, reactive;
+	float v, cur_a, cur_b, p_a, p_b, s, pf, freq, total_a, total_b, reactive;
+	float p_total, total_t;
 	char topic[48];
 
 	if (!Main_HasMQTTConnected())
 		return;
 
 	v = last_update_data.v_rms / 1000.0f;
-	cur = last_update_data.ia_rms / 1000.0f;
-	p = last_update_data.pa / 1000.0f;
+	cur_a = last_update_data.ia_rms / 1000.0f;
+	cur_b = last_update_data.ib_rms / 1000.0f;
+	p_a = last_update_data.pa / 1000.0f;
+	p_b = last_update_data.pb / 1000.0f;
 	s = last_update_data.ap / 1000.0f;
 	pf = last_update_data.pf / 1000.0f;
 	freq = last_update_data.freq / 100.0f;
-	total = (float)last_update_data.ea->Import;
+	total_a = (float)last_update_data.ea->Import;
+	total_b = (float)last_update_data.eb->Import;
+	p_total = p_a + p_b;
+	total_t = total_a + total_b;
 
 	{
-		float pkw = p / 1000.0f;
+		float pkw = p_a / 1000.0f;
 		float skw = s / 1000.0f;
 		float q2 = skw * skw - pkw * pkw;
 		reactive = (q2 > 0.0f) ? sqrtf(q2) * 1000.0f : 0.0f;
-		if (p < 0.0f)
+		if (p_a < 0.0f)
 			reactive = -reactive;
 	}
 
 	timeStr = TS2STR(TIME_GetCurrentTime(), TIME_FORMAT_ISO_8601);
 	snprintf(payload, sizeof(payload),
 		"{\"Time\":\"%s\",\"ENERGY\":{"
-		"\"Total\":%.3f,\"Yesterday\":0,\"Today\":0,"
-		"\"Power\":%.1f,\"ApparentPower\":%.1f,\"ReactivePower\":%.1f,"
-		"\"Factor\":%.2f,\"Voltage\":%.1f,\"Current\":%.3f,\"Frequency\":%.1f}}",
-		timeStr, total, p, s, reactive, pf, v, cur, freq);
+		"\"Total\":%.3f,\"Total_B\":%.3f,\"Total_T\":%.3f,"
+		"\"Yesterday\":0,\"Today\":0,"
+		"\"Power\":%.1f,\"Power_B\":%.1f,\"Power_T\":%.1f,"
+		"\"ApparentPower\":%.1f,\"ReactivePower\":%.1f,"
+		"\"Factor\":%.2f,\"Voltage\":%.1f,"
+		"\"Current\":%.3f,\"Current_B\":%.3f,"
+		"\"Frequency\":%.1f}}",
+		timeStr, total_a, total_b, total_t,
+		p_a, p_b, p_total,
+		s, reactive, pf, v, cur_a, cur_b, freq);
 
 	snprintf(topic, sizeof(topic), "tele/%s", IONE_MQTT_ENERGY_TOPIC);
 	MQTT_Publish(topic, "SENSOR", payload, 0);
-	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "tele/%s/SENSOR publish (period %u s)",
-		IONE_MQTT_ENERGY_TOPIC, (unsigned)g_hlw8112_teleperiod_sec);
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "tele/%s/SENSOR A=%.0fW B=%.0fW (period %u s)",
+		IONE_MQTT_ENERGY_TOPIC, p_a, p_b, (unsigned)g_hlw8112_teleperiod_sec);
 }
 #endif
 
