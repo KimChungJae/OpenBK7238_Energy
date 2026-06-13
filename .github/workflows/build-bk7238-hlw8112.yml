@@ -168,11 +168,14 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune46.py
           python3 scripts/hlw8112_bk7238_tune47.py
           python3 scripts/hlw8112_bk7238_tune48.py
+          python3 scripts/hlw8112_bk7238_tune49.py
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX47" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX48" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX49" src/driver/drv_hlw8112.c
+          grep -q "PHASE verify fail" src/driver/drv_hlw8112.c
           grep -q 'CMD_RegisterCommand("HLW8112_phase"' src/driver/drv_hlw8112.c
           grep -q "mqttTopic = CFG_GetMQTTClientId()" src/driver/drv_hlw8112.c
           ! grep -q "IONE_MQTT_ENERGY_TOPIC" src/driver/drv_hlw8112.c
