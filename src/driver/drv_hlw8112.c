@@ -1363,8 +1363,8 @@ static commandResult_t HLW8112_CmdTelePeriod(const void *context, const char *cm
 		sec = 3600;
 	g_hlw8112_teleperiod_sec = (uint16_t)sec;
 	HLW8112_TeleResetTick();
-	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "teleperiod: tele/Energy_Meta_2CH/SENSOR every %u s",
-		(unsigned)g_hlw8112_teleperiod_sec);
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "teleperiod: tele/%s/SENSOR every %u s",
+		CFG_GetMQTTClientId(), (unsigned)g_hlw8112_teleperiod_sec);
 	HLW8112_CmdHttpLine("teleperiod %u", (unsigned)g_hlw8112_teleperiod_sec);
 	HLW8112_TeleTryPublish();
 	return CMD_RES_OK;
@@ -1907,16 +1907,13 @@ static float HLW8112_RoundChPF(int32_t pf) {
 	return roundf(pf / 1000.0f * 10.0f) * 100.0f;
 }
 
-/* IONE_BK7238_REGFIX27: tele/Energy_Meta_2CH/SENSOR (2CH 미터 전용, STM32 Energy_Meta와 분리) */
-#ifndef IONE_MQTT_ENERGY_TOPIC
-#define IONE_MQTT_ENERGY_TOPIC "Energy_Meta_2CH"
-#endif
-
+/* IONE_BK7238_REGFIX47: tele/…/SENSOR = Web Configure MQTT → Client Topic (Base Topic) */
 static void HLW8112_IoneMqttPublishEnergy(void) {
 	char payload[720];
 	const char *timeStr;
+	const char *mqttTopic;
 	float v, cur_a, cur_b, p_a, p_b, s, pf, freq, total_a, total_b, export_a, export_b, reactive;
-	char topic[48];
+	char topic[64];
 
 	if (!Main_HasMQTTConnected())
 		return;
@@ -1961,10 +1958,11 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 		p_a, p_b,
 		s, reactive, pf, v, cur_a, cur_b, freq);
 
-	snprintf(topic, sizeof(topic), "tele/%s", IONE_MQTT_ENERGY_TOPIC);
+	mqttTopic = CFG_GetMQTTClientId();
+	snprintf(topic, sizeof(topic), "tele/%s", mqttTopic);
 	MQTT_Publish(topic, "SENSOR", payload, 0);
 	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "tele/%s/SENSOR A=%.0fW B=%.0fW Today_A=%.3f (period %u s)",
-		IONE_MQTT_ENERGY_TOPIC, p_a, p_b, g_hlw8112_today_a, (unsigned)g_hlw8112_teleperiod_sec);
+		mqttTopic, p_a, p_b, g_hlw8112_today_a, (unsigned)g_hlw8112_teleperiod_sec);
 }
 #endif
 
