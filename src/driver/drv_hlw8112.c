@@ -121,6 +121,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX47: tele/SENSOR = Web MQTT Client Topic */
 /* IONE_BK7238_REGFIX48: HLW8112_phase CLI — PHASEA/B 위상 보정 (RAWACCESS 불필요) */
 /* IONE_BK7238_REGFIX49: HLW8112_phase — SPI 성공(0) 오판 수정 + 쓰기 중 RunEverySecond SPI 차단 */
+/* IONE_BK7238_REGFIX50: HLW8112_pagain CLI — PAGAIN/PBGAIN 유효전력 gain 보정 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -1160,6 +1161,73 @@ static commandResult_t HLW8112_CmdPhase(const void *context, const char *cmd, co
 		Tokenizer_GetArg(0), val);
 	return CMD_RES_OK;
 }
+
+/* IONE_BK7238_REGFIX50: PAGAIN(0x05)/PBGAIN(0x06) — PHASE만으로 PF 부족 시 유효전력 스케일 */
+static commandResult_t HLW8112_CmdPagain(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	uint16_t ga = 0, gb = 0;
+	uint8_t reg;
+	uint16_t val;
+	uint8_t w;
+	int iv;
+
+	(void)context;
+	(void)cmd;
+	(void)cmdFlags;
+	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
+
+	if (Tokenizer_GetArgsCount() == 0 || (Tokenizer_GetArgsCount() == 1 && !strcmp(Tokenizer_GetArg(0), "read"))) {
+		HLW8112_DiagBeginSlow();
+		if (HLW8112_ReadRegister16(HLW8112_REG_PAGAIN, &ga) < 0 || HLW8112_ReadRegister16(HLW8112_REG_PBGAIN, &gb) < 0) {
+			HLW8112_DiagEnd();
+			return CMD_RES_BAD_ARGUMENT;
+		}
+		HLW8112_DiagEnd();
+		ADDLOG_INFO(LOG_FEATURE_CMD, "PAGAIN=0x%04X PBGAIN=0x%04X (0~65535, W 낮으면 2000씩 증가)", ga, gb);
+		return CMD_RES_OK;
+	}
+	if (Tokenizer_CheckArgsCountAndPrintWarning("HLW8112_pagain", 2))
+		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
+
+	iv = Tokenizer_GetArgInteger(1);
+	if (iv < 0 || iv > 65535)
+		return CMD_RES_BAD_ARGUMENT;
+	val = (uint16_t)iv;
+
+	if (!strcmp(Tokenizer_GetArg(0), "a") || !strcmp(Tokenizer_GetArg(0), "channel_a"))
+		reg = HLW8112_REG_PAGAIN;
+	else if (!strcmp(Tokenizer_GetArg(0), "b") || !strcmp(Tokenizer_GetArg(0), "channel_b"))
+		reg = HLW8112_REG_PBGAIN;
+	else {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "HLW8112_pagain: a|b 0~65535  (예: HLW8112_pagain a 8000)");
+		return CMD_RES_BAD_ARGUMENT;
+	}
+
+	HLW8112_DiagBeginSlow();
+	w = HLW8112_WriteRegister16(reg, val);
+	if ((int8_t)w < 0) {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "PAGAIN write fail reg=0x%02X val=0x%04X wr=%d", reg, val, (int)(int8_t)w);
+		HLW8112_DiagEnd();
+		return CMD_RES_BAD_ARGUMENT;
+	}
+	{
+		uint16_t rb = 0;
+		if (HLW8112_ReadRegister16(reg, &rb) < 0 || rb != val) {
+			ADDLOG_WARN(LOG_FEATURE_CMD, "PAGAIN verify fail reg=0x%02X want=0x%04X got=0x%04X", reg, val, rb);
+			HLW8112_DiagEnd();
+			return CMD_RES_BAD_ARGUMENT;
+		}
+	}
+	HLW8112_DiagEnd();
+
+	if (reg == HLW8112_REG_PAGAIN)
+		device.EX_REGiSTERS._PAGAIN = (uint32_t)val;
+	else
+		device.EX_REGiSTERS._PBGAIN = (uint32_t)val;
+
+	HLW8112_UpdateCoeff();
+	ADDLOG_INFO(LOG_FEATURE_CMD, "PAGAIN %s=0x%04X OK (Active Power·PF Web 확인)", Tokenizer_GetArg(0), val);
+	return CMD_RES_OK;
+}
 #endif
 
 static commandResult_t HLW8112_ClearEnergy(const void *context, const char *cmd, const char *args, int cmdFlags) {
@@ -1467,6 +1535,7 @@ void HLW8112_addCommads(void){
 	CMD_RegisterCommand("HLW8112_spireg", HLW8112_CmdSpiRegDbg, NULL);
 	CMD_RegisterCommand("HLW8112_reinit", HLW8112_CmdReinit, NULL);
 	CMD_RegisterCommand("HLW8112_phase", HLW8112_CmdPhase, NULL);
+	CMD_RegisterCommand("HLW8112_pagain", HLW8112_CmdPagain, NULL);
 #endif
 #if HLW8112_SPI_RAWACCESS
 	//cmddetail:{"name":"HLW8112_write_reg","args":"TODO",
