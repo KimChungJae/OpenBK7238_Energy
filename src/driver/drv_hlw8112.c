@@ -118,6 +118,8 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX44: YYYYMMDD 자정 롤오버·5분마다 Total/Today flash 저장 */
 /* IONE_BK7238_REGFIX45: Web 역률 % 표시 — pf_milli/10 (LCD·MQTT Factor_A와 동일) */
 /* IONE_BK7238_REGFIX46: tele/SENSOR Export_A/B — 역송·태양광 누적 kWh */
+/* IONE_BK7238_REGFIX47: tele/SENSOR = Web MQTT Client Topic */
+/* IONE_BK7238_REGFIX48: HLW8112_phase CLI — PHASEA/B 위상 보정 (RAWACCESS 불필요) */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -1091,6 +1093,54 @@ static commandResult_t HLW8112_CmdReinit(const void *context, const char *cmd, c
 	HLW8112_BK7238_FullInitReg("manual");
 	return CMD_RES_OK;
 }
+
+/* IONE_BK7238_REGFIX48: Web Console에서 PHASEA(0x07)/PHASEB(0x08) 1바이트 위상 보정 */
+static commandResult_t HLW8112_CmdPhase(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	uint8_t pa = 0, pb = 0;
+	uint8_t reg;
+	uint8_t w;
+	int val;
+
+	(void)context;
+	(void)cmd;
+	(void)cmdFlags;
+	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
+
+	if (Tokenizer_GetArgsCount() == 0 || (Tokenizer_GetArgsCount() == 1 && !strcmp(Tokenizer_GetArg(0), "read"))) {
+		if (HLW8112_ReadRegister8(HLW8112_REG_PHASEA, &pa) < 0 || HLW8112_ReadRegister8(HLW8112_REG_PHASEB, &pb) < 0)
+			return CMD_RES_BAD_ARGUMENT;
+		ADDLOG_INFO(LOG_FEATURE_CMD, "PHASEA=%u PHASEB=%u (0~255, PF 낮으면 5~10씩 증가)", (unsigned)pa, (unsigned)pb);
+		return CMD_RES_OK;
+	}
+	if (Tokenizer_CheckArgsCountAndPrintWarning("HLW8112_phase", 2))
+		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
+
+	val = Tokenizer_GetArgInteger(1);
+	if (val < 0 || val > 255)
+		return CMD_RES_BAD_ARGUMENT;
+
+	if (!strcmp(Tokenizer_GetArg(0), "a") || !strcmp(Tokenizer_GetArg(0), "channel_a"))
+		reg = HLW8112_REG_PHASEA;
+	else if (!strcmp(Tokenizer_GetArg(0), "b") || !strcmp(Tokenizer_GetArg(0), "channel_b"))
+		reg = HLW8112_REG_PHASEB;
+	else {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "HLW8112_phase: a|b 0~255  (예: HLW8112_phase a 20)");
+		return CMD_RES_BAD_ARGUMENT;
+	}
+
+	w = HLW8112_WriteRegister8(reg, (uint8_t)val);
+	if (w == 0)
+		return CMD_RES_BAD_ARGUMENT;
+
+	if (reg == HLW8112_REG_PHASEA)
+		device.EX_REGiSTERS._PHASEA = (uint32_t)val;
+	else
+		device.EX_REGiSTERS._PHASEB = (uint32_t)val;
+
+	ADDLOG_INFO(LOG_FEATURE_CMD, "PHASE %s=%d OK (Web Power Factor 확인, Sonoff 0.86 목표)",
+		Tokenizer_GetArg(0), val);
+	return CMD_RES_OK;
+}
 #endif
 
 static commandResult_t HLW8112_ClearEnergy(const void *context, const char *cmd, const char *args, int cmdFlags) {
@@ -1397,6 +1447,7 @@ void HLW8112_addCommads(void){
 	CMD_RegisterCommand("HLW8112_ufreq", HLW8112_CmdUfreqDbg, NULL);
 	CMD_RegisterCommand("HLW8112_spireg", HLW8112_CmdSpiRegDbg, NULL);
 	CMD_RegisterCommand("HLW8112_reinit", HLW8112_CmdReinit, NULL);
+	CMD_RegisterCommand("HLW8112_phase", HLW8112_CmdPhase, NULL);
 #endif
 #if HLW8112_SPI_RAWACCESS
 	//cmddetail:{"name":"HLW8112_write_reg","args":"TODO",

@@ -65,6 +65,7 @@ on:
       - 'scripts/hlw8112_bk7238_tune45.py'
       - 'scripts/hlw8112_bk7238_tune46.py'
       - 'scripts/hlw8112_bk7238_tune47.py'
+      - 'scripts/hlw8112_bk7238_tune48.py'
       - 'src/driver/drv_hlw8112.c'
       - 'src/user_main.c'
       - 'src/driver/drv_main.c'
@@ -165,10 +166,13 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune45.py
           python3 scripts/hlw8112_bk7238_tune46.py
           python3 scripts/hlw8112_bk7238_tune47.py
+          python3 scripts/hlw8112_bk7238_tune48.py
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX47" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX48" src/driver/drv_hlw8112.c
+          grep -q 'CMD_RegisterCommand("HLW8112_phase"' src/driver/drv_hlw8112.c
           grep -q "mqttTopic = CFG_GetMQTTClientId()" src/driver/drv_hlw8112.c
           ! grep -q "IONE_MQTT_ENERGY_TOPIC" src/driver/drv_hlw8112.c
           grep -q '\\"Export_A\\":%.3f,\\"Export_B\\":%.3f' src/driver/drv_hlw8112.c
@@ -192,7 +196,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix47"
+          APP_VER="${SHA}_hlw8112_spifix48"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 
