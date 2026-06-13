@@ -59,6 +59,9 @@ on:
       - 'scripts/hlw8112_bk7238_tune39.py'
       - 'scripts/hlw8112_bk7238_tune40.py'
       - 'scripts/hlw8112_bk7238_tune41.py'
+      - 'scripts/hlw8112_bk7238_tune42.py'
+      - 'scripts/hlw8112_bk7238_tune43.py'
+      - 'scripts/hlw8112_bk7238_tune44.py'
       - 'src/driver/drv_hlw8112.c'
       - 'src/user_main.c'
       - 'src/driver/drv_main.c'
@@ -153,15 +156,16 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune39.py
           python3 scripts/hlw8112_bk7238_tune40.py
           python3 scripts/hlw8112_bk7238_tune41.py
+          python3 scripts/hlw8112_bk7238_tune42.py
+          python3 scripts/hlw8112_bk7238_tune43.py
+          python3 scripts/hlw8112_bk7238_tune44.py
 
-          grep -q "IONE_BK7238_SPI_FIX5" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX36" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX37" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX38" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX39" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX40" src/driver/drv_hlw8112.c
-          grep -q "IONE_BK7238_REGFIX41" src/driver/drv_hlw8112.c
-          grep -q "Power_B" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX43" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX44" src/driver/drv_hlw8112.c
+          grep -q "HLW8112_LocalYmd" src/driver/drv_hlw8112.c
+          grep -q "HLW8112_PeriodicFlashSave" src/driver/drv_hlw8112.c
+          grep -q "Today_A" src/driver/drv_hlw8112.c
+          ! grep -q '"Power_T"' src/driver/drv_hlw8112.c
 
           grep -q "g_indexAutoRefreshInterval = 10000" src/httpserver/new_http.c
 
@@ -175,7 +179,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix41"
+          APP_VER="${SHA}_hlw8112_spifix44"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 

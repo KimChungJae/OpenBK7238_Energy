@@ -113,12 +113,29 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX39: 채널 MQTT 1Hz 차단 — teleperiod만 tele/SENSOR 주기 적용 */
 /* IONE_BK7238_REGFIX40: flash 쓰레기 teleperiod 제거·MQTT 연결/teleperiod 시 즉시 1회 발행 */
 /* IONE_BK7238_REGFIX41: tele/SENSOR 2CH — Power_B·Current_B·Total_B 추가 */
+/* IONE_BK7238_REGFIX42: *_A/*_B 키 통일·모듈 합산 필드 제거 */
+/* IONE_BK7238_REGFIX43: Today_A/B·Yesterday_A/B — NTP 자정 롤오버·flash 저장 */
+/* IONE_BK7238_REGFIX44: YYYYMMDD 자정 롤오버·5분마다 Total/Today flash 저장 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
+#define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
 static uint16_t g_hlw8112_tele_tick;
 static uint8_t g_hlw8112_mqtt_was_up;
+static float g_hlw8112_today_a;
+static float g_hlw8112_today_b;
+static float g_hlw8112_yesterday_a;
+static float g_hlw8112_yesterday_b;
+static uint32_t g_hlw8112_daily_ymd;
+static uint8_t g_hlw8112_daily_save_cd;
+static uint16_t g_hlw8112_flash_period_sec;
 
 static void HLW8112_IoneMqttPublishEnergy(void);
+static void HLW8112_LoadDailyEnergy(void);
+static void HLW8112_SaveDailyEnergy(void);
+static void HLW8112_CheckDailyRollover(void);
+static void HLW8112_AddDailyImportKwh(float kwh_a, float kwh_b);
+static void HLW8112_PeriodicFlashSave(void);
+static uint32_t HLW8112_LocalYmd(void);
 
 static void HLW8112_TeleResetTick(void) {
 	/* 다음 RunEverySecond에서 바로 1회 발행 */
@@ -130,6 +147,120 @@ static void HLW8112_TeleResetTick(void) {
 static void HLW8112_TeleTryPublish(void) {
 	if (Main_HasMQTTConnected())
 		HLW8112_IoneMqttPublishEnergy();
+}
+
+/* flash emetering: A=Today/Yesterday, B=ConsumptionHistory[0/1]; ConsumptionResetTime=YYYYMMDD */
+static uint32_t HLW8112_LocalYmd(void) {
+	TimeComponents tc;
+
+	if (!TIME_IsTimeSynced())
+		return 0;
+	tc = calculateComponents(TIME_GetCurrentTime());
+	return (uint32_t)tc.year * 10000u + (uint32_t)tc.month * 100u + tc.day;
+}
+
+static int HLW8112_YmdValid(uint32_t ymd) {
+	uint16_t y = (uint16_t)(ymd / 10000u);
+	uint8_t m = (uint8_t)((ymd / 100u) % 100u);
+	uint8_t d = (uint8_t)(ymd % 100u);
+
+	if (ymd < 20000101u)
+		return 0;
+	return isValidDate(y, m, d) ? 1 : 0;
+}
+
+static void HLW8112_LoadDailyEnergy(void) {
+	ENERGY_METERING_DATA em;
+	uint32_t stored;
+
+	memset(&em, 0, sizeof(em));
+	HAL_GetEnergyMeterStatus(&em);
+	g_hlw8112_today_a = em.TodayConsumpion;
+	g_hlw8112_yesterday_a = em.YesterdayConsumption;
+	g_hlw8112_today_b = em.ConsumptionHistory[0];
+	g_hlw8112_yesterday_b = em.ConsumptionHistory[1];
+	stored = (uint32_t)em.ConsumptionResetTime;
+	if (HLW8112_YmdValid(stored))
+		g_hlw8112_daily_ymd = stored;
+	else
+		g_hlw8112_daily_ymd = 0;
+}
+
+static void HLW8112_SaveDailyEnergy(void) {
+	ENERGY_METERING_DATA em;
+	int pg;
+
+	pg = OTA_GetProgress();
+	if (pg != -1) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER, "OTA in progress skip daily energy flash pg=%d", pg);
+		return;
+	}
+	memset(&em, 0, sizeof(em));
+	HAL_GetEnergyMeterStatus(&em);
+	em.TodayConsumpion = g_hlw8112_today_a;
+	em.YesterdayConsumption = g_hlw8112_yesterday_a;
+	em.ConsumptionHistory[0] = g_hlw8112_today_b;
+	em.ConsumptionHistory[1] = g_hlw8112_yesterday_b;
+	em.ConsumptionResetTime = (time_t)g_hlw8112_daily_ymd;
+	em.actual_mday = (char)(g_hlw8112_daily_ymd > 0 ? (g_hlw8112_daily_ymd % 100u) : 0);
+	em.TotalConsumption = (float)energy_acc_a.Import;
+#if ENABLE_BL_TWIN
+	em.TotalConsumption_b = (float)energy_acc_b.Import;
+#endif
+	em.save_counter++;
+	HAL_SetEnergyMeterStatus(&em);
+}
+
+static void HLW8112_PeriodicFlashSave(void) {
+	g_hlw8112_flash_period_sec++;
+	if (g_hlw8112_flash_period_sec < HLW8112_FLASH_PERIOD_SEC)
+		return;
+	g_hlw8112_flash_period_sec = 0;
+	HLW8112_SaveDailyEnergy();
+	HLW8112_save_stats(HLW8112_SAVE_ALL | HLW8112_SAVE_FORCE);
+}
+
+static void HLW8112_CheckDailyRollover(void) {
+	uint32_t ymd;
+
+	if (!TIME_IsTimeSynced())
+		return;
+	ymd = HLW8112_LocalYmd();
+	if (ymd == 0)
+		return;
+	if (g_hlw8112_daily_ymd == 0) {
+		g_hlw8112_daily_ymd = ymd;
+		return;
+	}
+	if (g_hlw8112_daily_ymd == ymd)
+		return;
+
+	/* NTP 로컬 자정: 오늘 24h → Yesterday, 새 날 Today=0 */
+	g_hlw8112_yesterday_a = g_hlw8112_today_a;
+	g_hlw8112_yesterday_b = g_hlw8112_today_b;
+	g_hlw8112_today_a = 0.0f;
+	g_hlw8112_today_b = 0.0f;
+	g_hlw8112_daily_ymd = ymd;
+	HLW8112_SaveDailyEnergy();
+	HLW8112_save_stats(HLW8112_SAVE_ALL | HLW8112_SAVE_FORCE);
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
+		"HLW8112 daily rollover %u Yesterday_A=%.3f Yesterday_B=%.3f kWh",
+		(unsigned)ymd, g_hlw8112_yesterday_a, g_hlw8112_yesterday_b);
+}
+
+static void HLW8112_AddDailyImportKwh(float kwh_a, float kwh_b) {
+	HLW8112_CheckDailyRollover();
+	if (kwh_a > 0.0f)
+		g_hlw8112_today_a += kwh_a;
+	if (kwh_b > 0.0f)
+		g_hlw8112_today_b += kwh_b;
+	if (kwh_a <= 0.0f && kwh_b <= 0.0f)
+		return;
+	g_hlw8112_daily_save_cd++;
+	if (g_hlw8112_daily_save_cd >= 30) {
+		g_hlw8112_daily_save_cd = 0;
+		HLW8112_SaveDailyEnergy();
+	}
 }
 
 int HLW8112_InitReg(void);
@@ -1581,6 +1712,7 @@ void HLW8112SPI_Init(void) {
 	HLW8112_Init();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	g_hlw8112_mqtt_was_up = 0;
+	HLW8112_LoadDailyEnergy();
 	HLW8112_TeleResetTick();
 	g_hlw8112_boot_watch_sec = 0;
 	/* IONE_BK7238_REGFIX31/33: 전원 안정 후 InitReg 1회 (이중 InitReg는 측정 0·B=0 유발) */
@@ -1779,10 +1911,9 @@ static float HLW8112_RoundChPF(int32_t pf) {
 #endif
 
 static void HLW8112_IoneMqttPublishEnergy(void) {
-	char payload[640];
+	char payload[720];
 	const char *timeStr;
 	float v, cur_a, cur_b, p_a, p_b, s, pf, freq, total_a, total_b, reactive;
-	float p_total, total_t;
 	char topic[48];
 
 	if (!Main_HasMQTTConnected())
@@ -1798,8 +1929,6 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 	freq = last_update_data.freq / 100.0f;
 	total_a = (float)last_update_data.ea->Import;
 	total_b = (float)last_update_data.eb->Import;
-	p_total = p_a + p_b;
-	total_t = total_a + total_b;
 
 	{
 		float pkw = p_a / 1000.0f;
@@ -1813,21 +1942,24 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 	timeStr = TS2STR(TIME_GetCurrentTime(), TIME_FORMAT_ISO_8601);
 	snprintf(payload, sizeof(payload),
 		"{\"Time\":\"%s\",\"ENERGY\":{"
-		"\"Total\":%.3f,\"Total_B\":%.3f,\"Total_T\":%.3f,"
-		"\"Yesterday\":0,\"Today\":0,"
-		"\"Power\":%.1f,\"Power_B\":%.1f,\"Power_T\":%.1f,"
-		"\"ApparentPower\":%.1f,\"ReactivePower\":%.1f,"
-		"\"Factor\":%.2f,\"Voltage\":%.1f,"
-		"\"Current\":%.3f,\"Current_B\":%.3f,"
+		"\"Total_A\":%.3f,\"Total_B\":%.3f,"
+		"\"Yesterday_A\":%.3f,\"Yesterday_B\":%.3f,"
+		"\"Today_A\":%.3f,\"Today_B\":%.3f,"
+		"\"Power_A\":%.1f,\"Power_B\":%.1f,"
+		"\"ApparentPower_A\":%.1f,\"ReactivePower_A\":%.1f,"
+		"\"Factor_A\":%.2f,\"Voltage\":%.1f,"
+		"\"Current_A\":%.3f,\"Current_B\":%.3f,"
 		"\"Frequency\":%.1f}}",
-		timeStr, total_a, total_b, total_t,
-		p_a, p_b, p_total,
+		timeStr, total_a, total_b,
+		g_hlw8112_yesterday_a, g_hlw8112_yesterday_b,
+		g_hlw8112_today_a, g_hlw8112_today_b,
+		p_a, p_b,
 		s, reactive, pf, v, cur_a, cur_b, freq);
 
 	snprintf(topic, sizeof(topic), "tele/%s", IONE_MQTT_ENERGY_TOPIC);
 	MQTT_Publish(topic, "SENSOR", payload, 0);
-	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "tele/%s/SENSOR A=%.0fW B=%.0fW (period %u s)",
-		IONE_MQTT_ENERGY_TOPIC, p_a, p_b, (unsigned)g_hlw8112_teleperiod_sec);
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "tele/%s/SENSOR A=%.0fW B=%.0fW Today_A=%.3f (period %u s)",
+		IONE_MQTT_ENERGY_TOPIC, p_a, p_b, g_hlw8112_today_a, (unsigned)g_hlw8112_teleperiod_sec);
 }
 #endif
 
@@ -1876,8 +2008,12 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	if (energy_a != 0) {
 		ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "EA val %08X scaled %08X", data->ea, energy_a);
 		if (power_a > 0) {
-			energy_acc_a.Import += (double)energy_a / 10000000.0;
+			double kwh_a = (double)energy_a / 10000000.0;
+			energy_acc_a.Import += kwh_a;
 			save |= HLW8112_SAVE_A_IMP;
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+			HLW8112_AddDailyImportKwh((float)kwh_a, 0.0f);
+#endif
 		} else {
 			energy_acc_a.Export += (double)energy_a / 10000000.0;
 			save |= HLW8112_SAVE_A_EXP;
@@ -1885,8 +2021,12 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	}
 	if (energy_b !=0.0f ) {
 		if (power_b > 0) {
-			energy_acc_b.Import +=  energy_b / 10000000.0;
+			double kwh_b = (double)energy_b / 10000000.0;
+			energy_acc_b.Import += kwh_b;
 			save |= HLW8112_SAVE_B_IMP;
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+			HLW8112_AddDailyImportKwh(0.0f, (float)kwh_b);
+#endif
 		}else {
 			energy_acc_b.Export +=  energy_b/ 10000000.0;
 			save |= HLW8112_SAVE_B_EXP;
@@ -1987,6 +2127,8 @@ void HLW8112_RunEverySecond(void) {
 
     HLW8112_ScaleAndUpdate(&data);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_CheckDailyRollover();
+	HLW8112_PeriodicFlashSave();
 	HLW8112_BK7238_WatchChannelB();
 	{
 		int mqtt_up = Main_HasMQTTConnected();
