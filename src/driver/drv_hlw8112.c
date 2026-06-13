@@ -116,6 +116,8 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX42: *_A/*_B 키 통일·모듈 합산 필드 제거 */
 /* IONE_BK7238_REGFIX43: Today_A/B·Yesterday_A/B — NTP 자정 롤오버·flash 저장 */
 /* IONE_BK7238_REGFIX44: YYYYMMDD 자정 롤오버·5분마다 Total/Today flash 저장 */
+/* IONE_BK7238_REGFIX45: Web 역률 % 표시 — pf_milli/10 (LCD·MQTT Factor_A와 동일) */
+/* IONE_BK7238_REGFIX46: tele/SENSOR Export_A/B — 역송·태양광 누적 kWh */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -1913,7 +1915,7 @@ static float HLW8112_RoundChPF(int32_t pf) {
 static void HLW8112_IoneMqttPublishEnergy(void) {
 	char payload[720];
 	const char *timeStr;
-	float v, cur_a, cur_b, p_a, p_b, s, pf, freq, total_a, total_b, reactive;
+	float v, cur_a, cur_b, p_a, p_b, s, pf, freq, total_a, total_b, export_a, export_b, reactive;
 	char topic[48];
 
 	if (!Main_HasMQTTConnected())
@@ -1929,6 +1931,8 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 	freq = last_update_data.freq / 100.0f;
 	total_a = (float)last_update_data.ea->Import;
 	total_b = (float)last_update_data.eb->Import;
+	export_a = (float)last_update_data.ea->Export;
+	export_b = (float)last_update_data.eb->Export;
 
 	{
 		float pkw = p_a / 1000.0f;
@@ -1943,6 +1947,7 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 	snprintf(payload, sizeof(payload),
 		"{\"Time\":\"%s\",\"ENERGY\":{"
 		"\"Total_A\":%.3f,\"Total_B\":%.3f,"
+		"\"Export_A\":%.3f,\"Export_B\":%.3f,"
 		"\"Yesterday_A\":%.3f,\"Yesterday_B\":%.3f,"
 		"\"Today_A\":%.3f,\"Today_B\":%.3f,"
 		"\"Power_A\":%.1f,\"Power_B\":%.1f,"
@@ -1950,7 +1955,7 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 		"\"Factor_A\":%.2f,\"Voltage\":%.1f,"
 		"\"Current_A\":%.3f,\"Current_B\":%.3f,"
 		"\"Frequency\":%.1f}}",
-		timeStr, total_a, total_b,
+		timeStr, total_a, total_b, export_a, export_b,
 		g_hlw8112_yesterday_a, g_hlw8112_yesterday_b,
 		g_hlw8112_today_a, g_hlw8112_today_b,
 		p_a, p_b,
@@ -2227,7 +2232,7 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 	appendTableRow(request, "Frequency", "Hz", last_update_data.freq, 1, 100.0f );
 	appendTableRow(request, "Active Power", "W", last_update_data.pa, 1,1000.0f );
 	appendTableRow(request, "Apparent Power", "VA", last_update_data.ap, 1, 1000.0f );
-	appendTableRow(request, "Power Factor", "", last_update_data.pf, 1, 1000.0f );
+	appendTableRow(request, "Power Factor", "%", last_update_data.pf, 1, 10.0f );
 	poststr(request, "</table>");
 
 	poststr(request, "<hr><table style='width:100%'>");
