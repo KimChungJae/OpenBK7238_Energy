@@ -858,11 +858,21 @@ void HLW8112_Set_EnergyStat(HLW8112_Channel_t channel, float import, float expor
 	if (channel == HLW8112_CHANNEL_B){
 		data = &energy_acc_b;
 		counter_reg = HLW8112_REG_PFCntPB;
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 		CHANNEL_Set(HLW8112_Channel_export_B, export * 1000, HLW8112_CH_MQTT_SKIP);
 		CHANNEL_Set(HLW8112_Channel_import_B, import * 1000, HLW8112_CH_MQTT_SKIP);
+#else
+		CHANNEL_Set(HLW8112_Channel_export_B, export * 1000, 0);
+		CHANNEL_Set(HLW8112_Channel_import_B, import * 1000, 0);
+#endif
 	}else {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 		CHANNEL_Set(HLW8112_Channel_export_A, export * 1000, HLW8112_CH_MQTT_SKIP);
 		CHANNEL_Set(HLW8112_Channel_import_A, import * 1000, HLW8112_CH_MQTT_SKIP);
+#else
+		CHANNEL_Set(HLW8112_Channel_export_A, export * 1000, 0);
+		CHANNEL_Set(HLW8112_Channel_import_A, import * 1000, 0);
+#endif
 	}
 
 	data->Import = import;
