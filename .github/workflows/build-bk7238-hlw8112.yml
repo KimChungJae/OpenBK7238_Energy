@@ -69,6 +69,7 @@ on:
       - 'scripts/hlw8112_bk7238_tune49.py'
       - 'scripts/hlw8112_bk7238_tune50.py'
       - 'scripts/hlw8112_bk7238_tune51.py'
+      - 'scripts/hlw8112_bk7238_tune52.py'
       - 'src/driver/drv_hlw8112.c'
       - 'src/user_main.c'
       - 'src/driver/drv_main.c'
@@ -173,6 +174,7 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune49.py
           python3 scripts/hlw8112_bk7238_tune50.py
           python3 scripts/hlw8112_bk7238_tune51.py
+          python3 scripts/hlw8112_bk7238_tune52.py
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
@@ -181,9 +183,11 @@ jobs:
           grep -q "IONE_BK7238_REGFIX49" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX50" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX51" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX52" src/driver/drv_hlw8112.c
           grep -q "PHASE verify fail" src/driver/drv_hlw8112.c
           grep -q 'CMD_RegisterCommand("HLW8112_phase"' src/driver/drv_hlw8112.c
           grep -q 'CMD_RegisterCommand("HLW8112_pagain"' src/driver/drv_hlw8112.c
+          grep -q 'CMD_RegisterCommand("HLW8112_psgain"' src/driver/drv_hlw8112.c
           grep -q "mqttTopic = CFG_GetMQTTClientId()" src/driver/drv_hlw8112.c
           ! grep -q "IONE_MQTT_ENERGY_TOPIC" src/driver/drv_hlw8112.c
           grep -q '\\"Export_A\\":%.3f,\\"Export_B\\":%.3f' src/driver/drv_hlw8112.c
@@ -207,7 +211,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix51"
+          APP_VER="${SHA}_hlw8112_spifix52"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 

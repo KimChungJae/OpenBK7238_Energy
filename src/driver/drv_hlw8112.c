@@ -123,6 +123,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX49: HLW8112_phase — SPI 성공(0) 오판 수정 + 쓰기 중 RunEverySecond SPI 차단 */
 /* IONE_BK7238_REGFIX50: HLW8112_pagain CLI — PAGAIN/PBGAIN 유효전력 gain 보정 */
 /* IONE_BK7238_REGFIX51: PAGAIN/PBGAIN WriteRegister16 verify 생략 (BK7238 SPI readback off) */
+/* IONE_BK7238_REGFIX52: HLW8112_psgain CLI — PSGAIN(0x11) 피상전력 보정, PF= P/S 튜닝 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -836,8 +837,8 @@ uint8_t HLW8112_WriteRegister16(uint8_t reg, uint16_t value) {
 	if (reg == HLW8112_REG_PFCntPA || reg == HLW8112_REG_PFCntPB)
 		return result;
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	/* IONE_BK7238_REGFIX51: PAGAIN/PBGAIN 등 — 쓰기 직후 readback off 어긋남, verify 생략 */
-	if (reg == HLW8112_REG_PAGAIN || reg == HLW8112_REG_PBGAIN)
+	/* IONE_BK7238_REGFIX51/52: gain 레지스터 — 쓰기 직후 readback off 어긋남, verify 생략 */
+	if (reg == HLW8112_REG_PAGAIN || reg == HLW8112_REG_PBGAIN || reg == HLW8112_REG_PSGAIN)
 		return result;
 #endif
 
@@ -1121,7 +1122,9 @@ static commandResult_t HLW8112_CmdPhase(const void *context, const char *cmd, co
 			return CMD_RES_BAD_ARGUMENT;
 		}
 		HLW8112_DiagEnd();
-		ADDLOG_INFO(LOG_FEATURE_CMD, "PHASEA=%u PHASEB=%u (0~255, PF 낮으면 5~10씩 증가)", (unsigned)pa, (unsigned)pb);
+		ADDLOG_INFO(LOG_FEATURE_CMD,
+			"PHASEA=%u PHASEB=%u (PF 올리려면 0~127, 128~255=반대방향, 최대 127)",
+			(unsigned)pa, (unsigned)pb);
 		return CMD_RES_OK;
 	}
 	if (Tokenizer_CheckArgsCountAndPrintWarning("HLW8112_phase", 2))
@@ -1225,6 +1228,54 @@ static commandResult_t HLW8112_CmdPagain(const void *context, const char *cmd, c
 	HLW8112_UpdateCoeff();
 	HLW8112_compute_scale_factor();
 	ADDLOG_INFO(LOG_FEATURE_CMD, "PAGAIN %s=0x%04X OK — Web Active Power 확인 (Sonoff W 목표)", Tokenizer_GetArg(0), val);
+	return CMD_RES_OK;
+}
+
+/* IONE_BK7238_REGFIX52: PSGAIN(0x11) — 피상전력(VA) gain, PF=P/S (PHASE 127 이후 역률 보정) */
+static commandResult_t HLW8112_CmdPsgain(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	uint16_t gs = 0;
+	uint16_t val;
+	uint8_t w;
+	int iv;
+
+	(void)context;
+	(void)cmd;
+	(void)cmdFlags;
+	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
+
+	if (Tokenizer_GetArgsCount() == 0 || (Tokenizer_GetArgsCount() == 1 && !strcmp(Tokenizer_GetArg(0), "read"))) {
+		HLW8112_DiagBeginSlow();
+		if (HLW8112_ReadRegister16(HLW8112_REG_PSGAIN, &gs) < 0) {
+			HLW8112_DiagEnd();
+			return CMD_RES_BAD_ARGUMENT;
+		}
+		HLW8112_DiagEnd();
+		ADDLOG_INFO(LOG_FEATURE_CMD,
+			"PSGAIN=%u (0=기본, PF 낮으면 62000~65000부터 시험 — Web VA·PF 확인)",
+			(unsigned)gs);
+		return CMD_RES_OK;
+	}
+	if (Tokenizer_CheckArgsCountAndPrintWarning("HLW8112_psgain", 1))
+		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
+
+	iv = Tokenizer_GetArgInteger(0);
+	if (iv < 0 || iv > 65535)
+		return CMD_RES_BAD_ARGUMENT;
+	val = (uint16_t)iv;
+
+	HLW8112_DiagBeginSlow();
+	w = HLW8112_WriteRegister16(HLW8112_REG_PSGAIN, val);
+	if ((int8_t)w < 0) {
+		ADDLOG_WARN(LOG_FEATURE_CMD, "PSGAIN write fail val=%u wr=%d", (unsigned)val, (int)(int8_t)w);
+		HLW8112_DiagEnd();
+		return CMD_RES_BAD_ARGUMENT;
+	}
+	HLW8112_DiagEnd();
+
+	device.EX_REGiSTERS._PSGAIN = (uint32_t)val;
+	ADDLOG_INFO(LOG_FEATURE_CMD,
+		"PSGAIN=%u OK — Web Power Factor·Apparent Power 확인 (Sonoff PF 목표, W는 PAGAIN)",
+		(unsigned)val);
 	return CMD_RES_OK;
 }
 #endif
@@ -1535,6 +1586,7 @@ void HLW8112_addCommads(void){
 	CMD_RegisterCommand("HLW8112_reinit", HLW8112_CmdReinit, NULL);
 	CMD_RegisterCommand("HLW8112_phase", HLW8112_CmdPhase, NULL);
 	CMD_RegisterCommand("HLW8112_pagain", HLW8112_CmdPagain, NULL);
+	CMD_RegisterCommand("HLW8112_psgain", HLW8112_CmdPsgain, NULL);
 #endif
 #if HLW8112_SPI_RAWACCESS
 	//cmddetail:{"name":"HLW8112_write_reg","args":"TODO",
