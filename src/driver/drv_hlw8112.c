@@ -110,8 +110,28 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX36 */
 /* IONE_BK7238_REGFIX37 */
 /* IONE_BK7238_REGFIX38: teleperiod — tele/Energy_Meta_2CH/SENSOR MQTT 주기(초), Tasmota 호환 */
+/* IONE_BK7238_REGFIX39: 채널 MQTT 1Hz 차단 — teleperiod만 tele/SENSOR 주기 적용 */
+#define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 static uint16_t g_hlw8112_teleperiod_sec = 10;
 static uint16_t g_hlw8112_tele_tick;
+
+static void HLW8112_LoadTelePeriod(void) {
+	/* g_cfg.unused_fill1: flash 저장 teleperiod(1~255), 0=기본 10초 */
+	if (g_cfg.unused_fill1 >= 1) {
+		g_hlw8112_teleperiod_sec = g_cfg.unused_fill1;
+	}
+	g_hlw8112_tele_tick = 0;
+}
+
+static void HLW8112_SaveTelePeriod(uint16_t sec) {
+	if (sec > 255)
+		sec = 255;
+	if (g_cfg.unused_fill1 != (byte)sec) {
+		g_cfg.unused_fill1 = (byte)sec;
+		g_cfg_pendingChanges++;
+	}
+	CFG_Save_IfThereArePendingChanges();
+}
 
 int HLW8112_InitReg(void);
 
@@ -816,10 +836,10 @@ static void HLW8112_ClearEnergyBoth(void) {
 	energy_acc_a.Export = 0.0f;
 	energy_acc_b.Import = 0.0f;
 	energy_acc_b.Export = 0.0f;
-	CHANNEL_Set(HLW8112_Channel_export_A, 0, 0);
-	CHANNEL_Set(HLW8112_Channel_import_A, 0, 0);
-	CHANNEL_Set(HLW8112_Channel_export_B, 0, 0);
-	CHANNEL_Set(HLW8112_Channel_import_B, 0, 0);
+	CHANNEL_Set(HLW8112_Channel_export_A, 0, HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_import_A, 0, HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_export_B, 0, HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_import_B, 0, HLW8112_CH_MQTT_SKIP);
 	HLW8112_SaveEnergyFlashBoth();
 	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: A·B 모두 0 (flash 1회)");
 }
@@ -838,11 +858,11 @@ void HLW8112_Set_EnergyStat(HLW8112_Channel_t channel, float import, float expor
 	if (channel == HLW8112_CHANNEL_B){
 		data = &energy_acc_b;
 		counter_reg = HLW8112_REG_PFCntPB;
-		CHANNEL_Set(HLW8112_Channel_export_B, export * 1000, 0);
-		CHANNEL_Set(HLW8112_Channel_import_B, import * 1000, 0);
+		CHANNEL_Set(HLW8112_Channel_export_B, export * 1000, HLW8112_CH_MQTT_SKIP);
+		CHANNEL_Set(HLW8112_Channel_import_B, import * 1000, HLW8112_CH_MQTT_SKIP);
 	}else {
-		CHANNEL_Set(HLW8112_Channel_export_A, export * 1000, 0);
-		CHANNEL_Set(HLW8112_Channel_import_A, import * 1000, 0);
+		CHANNEL_Set(HLW8112_Channel_export_A, export * 1000, HLW8112_CH_MQTT_SKIP);
+		CHANNEL_Set(HLW8112_Channel_import_A, import * 1000, HLW8112_CH_MQTT_SKIP);
 	}
 
 	data->Import = import;
@@ -1201,7 +1221,8 @@ static commandResult_t HLW8112_CmdTelePeriod(const void *context, const char *cm
 		sec = 3600;
 	g_hlw8112_teleperiod_sec = (uint16_t)sec;
 	g_hlw8112_tele_tick = 0;
-	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "teleperiod: tele/Energy_Meta_2CH/SENSOR every %u s",
+	HLW8112_SaveTelePeriod(g_hlw8112_teleperiod_sec);
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "teleperiod: tele/Energy_Meta_2CH/SENSOR every %u s (flash<=255)",
 		(unsigned)g_hlw8112_teleperiod_sec);
 	HLW8112_CmdHttpLine("teleperiod %u", (unsigned)g_hlw8112_teleperiod_sec);
 	return CMD_RES_OK;
@@ -1550,6 +1571,7 @@ void HLW8112_Init(void) {
 void HLW8112SPI_Init(void) {
 	HLW8112_Init();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_LoadTelePeriod();
 	g_hlw8112_boot_watch_sec = 0;
 	/* IONE_BK7238_REGFIX31/33: 전원 안정 후 InitReg 1회 (이중 InitReg는 측정 0·B=0 유발) */
 	rtos_delay_milliseconds(1500);
@@ -1782,6 +1804,8 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 
 	snprintf(topic, sizeof(topic), "tele/%s", IONE_MQTT_ENERGY_TOPIC);
 	MQTT_Publish(topic, "SENSOR", payload, 0);
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "tele/%s/SENSOR publish (period %u s)",
+		IONE_MQTT_ENERGY_TOPIC, (unsigned)g_hlw8112_teleperiod_sec);
 }
 #endif
 
@@ -1854,14 +1878,14 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	// update
 	
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	CHANNEL_Set(HLW8112_Channel_Voltage, HLW8112_RoundChVoltage(last_update_data.v_rms), 0);
-	CHANNEL_Set(HLW8112_Channel_Frequency, HLW8112_RoundChFreq(last_update_data.freq), 0);
-	CHANNEL_Set(HLW8112_Channel_PowerFactor, HLW8112_RoundChPF(last_update_data.pf), 0);
-	CHANNEL_Set(HLW8112_Channel_current_B, HLW8112_RoundChCurrent(last_update_data.ib_rms), 0);
-	CHANNEL_Set(HLW8112_Channel_current_A, HLW8112_RoundChCurrent(last_update_data.ia_rms), 0);
-	CHANNEL_Set(HLW8112_Channel_power_B, HLW8112_RoundChPower(last_update_data.pb), 0);
-	CHANNEL_Set(HLW8112_Channel_power_A, HLW8112_RoundChPower(last_update_data.pa), 0);
-	CHANNEL_Set(HLW8112_Channel_apparent_power_A, HLW8112_RoundChPower(last_update_data.ap), 0);
+	CHANNEL_Set(HLW8112_Channel_Voltage, HLW8112_RoundChVoltage(last_update_data.v_rms), HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_Frequency, HLW8112_RoundChFreq(last_update_data.freq), HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_PowerFactor, HLW8112_RoundChPF(last_update_data.pf), HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_current_B, HLW8112_RoundChCurrent(last_update_data.ib_rms), HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_current_A, HLW8112_RoundChCurrent(last_update_data.ia_rms), HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_power_B, HLW8112_RoundChPower(last_update_data.pb), HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_power_A, HLW8112_RoundChPower(last_update_data.pa), HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_apparent_power_A, HLW8112_RoundChPower(last_update_data.ap), HLW8112_CH_MQTT_SKIP);
 #else
 	CHANNEL_Set(HLW8112_Channel_Voltage, last_update_data.v_rms / 10.0, 0);
 	CHANNEL_Set(HLW8112_Channel_Frequency,last_update_data.freq , 0);
@@ -1872,10 +1896,17 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	CHANNEL_Set(HLW8112_Channel_power_A, last_update_data.pa / 10.0, 0);
 	CHANNEL_Set(HLW8112_Channel_apparent_power_A, last_update_data.ap / 10.0, 0);
 #endif
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	CHANNEL_Set(HLW8112_Channel_export_B, last_update_data.eb->Export * 1000, HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_export_A, last_update_data.ea->Export * 1000, HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_import_B, last_update_data.eb->Import * 1000, HLW8112_CH_MQTT_SKIP);
+	CHANNEL_Set(HLW8112_Channel_import_A, last_update_data.ea->Import * 1000, HLW8112_CH_MQTT_SKIP);
+#else
 	CHANNEL_Set(HLW8112_Channel_export_B, last_update_data.eb->Export * 1000, 0);
 	CHANNEL_Set(HLW8112_Channel_export_A, last_update_data.ea->Export * 1000, 0);
 	CHANNEL_Set(HLW8112_Channel_import_B, last_update_data.eb->Import * 1000, 0);
 	CHANNEL_Set(HLW8112_Channel_import_A, last_update_data.ea->Import * 1000, 0);
+#endif
 }
 
 #pragma endregion
