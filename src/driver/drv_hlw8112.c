@@ -111,26 +111,24 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX37 */
 /* IONE_BK7238_REGFIX38: teleperiod — tele/Energy_Meta_2CH/SENSOR MQTT 주기(초), Tasmota 호환 */
 /* IONE_BK7238_REGFIX39: 채널 MQTT 1Hz 차단 — teleperiod만 tele/SENSOR 주기 적용 */
+/* IONE_BK7238_REGFIX40: flash 쓰레기 teleperiod 제거·MQTT 연결/teleperiod 시 즉시 1회 발행 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 static uint16_t g_hlw8112_teleperiod_sec = 10;
 static uint16_t g_hlw8112_tele_tick;
+static uint8_t g_hlw8112_mqtt_was_up;
 
-static void HLW8112_LoadTelePeriod(void) {
-	/* g_cfg.unused_fill1: flash 저장 teleperiod(1~255), 0=기본 10초 */
-	if (g_cfg.unused_fill1 >= 1) {
-		g_hlw8112_teleperiod_sec = g_cfg.unused_fill1;
-	}
-	g_hlw8112_tele_tick = 0;
+static void HLW8112_IoneMqttPublishEnergy(void);
+
+static void HLW8112_TeleResetTick(void) {
+	/* 다음 RunEverySecond에서 바로 1회 발행 */
+	if (g_hlw8112_teleperiod_sec < 1)
+		g_hlw8112_teleperiod_sec = 1;
+	g_hlw8112_tele_tick = g_hlw8112_teleperiod_sec;
 }
 
-static void HLW8112_SaveTelePeriod(uint16_t sec) {
-	if (sec > 255)
-		sec = 255;
-	if (g_cfg.unused_fill1 != (byte)sec) {
-		g_cfg.unused_fill1 = (byte)sec;
-		g_cfg_pendingChanges++;
-	}
-	CFG_Save_IfThereArePendingChanges();
+static void HLW8112_TeleTryPublish(void) {
+	if (Main_HasMQTTConnected())
+		HLW8112_IoneMqttPublishEnergy();
 }
 
 int HLW8112_InitReg(void);
@@ -1230,11 +1228,11 @@ static commandResult_t HLW8112_CmdTelePeriod(const void *context, const char *cm
 	if (sec > 3600)
 		sec = 3600;
 	g_hlw8112_teleperiod_sec = (uint16_t)sec;
-	g_hlw8112_tele_tick = 0;
-	HLW8112_SaveTelePeriod(g_hlw8112_teleperiod_sec);
-	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "teleperiod: tele/Energy_Meta_2CH/SENSOR every %u s (flash<=255)",
+	HLW8112_TeleResetTick();
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "teleperiod: tele/Energy_Meta_2CH/SENSOR every %u s",
 		(unsigned)g_hlw8112_teleperiod_sec);
 	HLW8112_CmdHttpLine("teleperiod %u", (unsigned)g_hlw8112_teleperiod_sec);
+	HLW8112_TeleTryPublish();
 	return CMD_RES_OK;
 }
 #endif
@@ -1581,7 +1579,8 @@ void HLW8112_Init(void) {
 void HLW8112SPI_Init(void) {
 	HLW8112_Init();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	HLW8112_LoadTelePeriod();
+	g_hlw8112_mqtt_was_up = 0;
+	HLW8112_TeleResetTick();
 	g_hlw8112_boot_watch_sec = 0;
 	/* IONE_BK7238_REGFIX31/33: 전원 안정 후 InitReg 1회 (이중 InitReg는 측정 0·B=0 유발) */
 	rtos_delay_milliseconds(1500);
@@ -1976,10 +1975,17 @@ void HLW8112_RunEverySecond(void) {
     HLW8112_ScaleAndUpdate(&data);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	HLW8112_BK7238_WatchChannelB();
+	{
+		int mqtt_up = Main_HasMQTTConnected();
+		if (mqtt_up && !g_hlw8112_mqtt_was_up)
+			HLW8112_TeleResetTick();
+		g_hlw8112_mqtt_was_up = (uint8_t)mqtt_up;
+	}
 	g_hlw8112_tele_tick++;
 	if (g_hlw8112_tele_tick >= g_hlw8112_teleperiod_sec) {
 		g_hlw8112_tele_tick = 0;
-		HLW8112_IoneMqttPublishEnergy();
+		if (Main_HasMQTTConnected())
+			HLW8112_IoneMqttPublishEnergy();
 	}
 #endif
 }
