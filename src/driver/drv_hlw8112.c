@@ -109,6 +109,9 @@ static volatile uint8_t g_hlw8112_clear_busy;
 static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX36 */
 /* IONE_BK7238_REGFIX37 */
+/* IONE_BK7238_REGFIX38: teleperiod — tele/Energy_Meta_2CH/SENSOR MQTT 주기(초), Tasmota 호환 */
+static uint16_t g_hlw8112_teleperiod_sec = 10;
+static uint16_t g_hlw8112_tele_tick;
 
 int HLW8112_InitReg(void);
 
@@ -1179,6 +1182,30 @@ static commandResult_t HLW8112_CmdUfreqDbg(const void *context, const char *cmd,
 	HLW8112_DiagEnd();
 	return res;
 }
+
+static commandResult_t HLW8112_CmdTelePeriod(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	int sec;
+
+	Tokenizer_TokenizeString(args, 0);
+	if (Tokenizer_GetArg(0)[0] == 0) {
+		HLW8112_CmdHttpLine("teleperiod %u", (unsigned)g_hlw8112_teleperiod_sec);
+		return CMD_RES_OK;
+	}
+	if (Tokenizer_CheckArgsCountAndPrintWarning(cmd, 1)) {
+		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
+	}
+	sec = Tokenizer_GetArgInteger(0);
+	if (sec < 1)
+		sec = 1;
+	if (sec > 3600)
+		sec = 3600;
+	g_hlw8112_teleperiod_sec = (uint16_t)sec;
+	g_hlw8112_tele_tick = 0;
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "teleperiod: tele/Energy_Meta_2CH/SENSOR every %u s",
+		(unsigned)g_hlw8112_teleperiod_sec);
+	HLW8112_CmdHttpLine("teleperiod %u", (unsigned)g_hlw8112_teleperiod_sec);
+	return CMD_RES_OK;
+}
 #endif
 
 void HLW8112_addCommads(void){
@@ -1203,6 +1230,7 @@ void HLW8112_addCommads(void){
 	//cmddetail:"examples":""}
     CMD_RegisterCommand("clear_energy", HLW8112_ClearEnergy, NULL);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	CMD_RegisterCommand("teleperiod", HLW8112_CmdTelePeriod, NULL);
 	CMD_RegisterCommand("HLW8112_ufreq", HLW8112_CmdUfreqDbg, NULL);
 	CMD_RegisterCommand("HLW8112_spireg", HLW8112_CmdSpiRegDbg, NULL);
 	CMD_RegisterCommand("HLW8112_reinit", HLW8112_CmdReinit, NULL);
@@ -1907,7 +1935,11 @@ void HLW8112_RunEverySecond(void) {
     HLW8112_ScaleAndUpdate(&data);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	HLW8112_BK7238_WatchChannelB();
-	HLW8112_IoneMqttPublishEnergy();
+	g_hlw8112_tele_tick++;
+	if (g_hlw8112_tele_tick >= g_hlw8112_teleperiod_sec) {
+		g_hlw8112_tele_tick = 0;
+		HLW8112_IoneMqttPublishEnergy();
+	}
 #endif
 }
 
