@@ -133,6 +133,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX59: clear_energy 시 Today flash 0·일일값 오염 자동 복구 */
 /* IONE_BK7238_REGFIX60: Web 표 3열·Channel A/B 값 우측 정렬 */
 /* IONE_BK7238_REGFIX61: Energy Total — 채널별 월 누적(일별 합+오늘)·flash·MQTT·EnergyTotal 0 */
+/* IONE_BK7238_REGFIX62: Energy Total = month + yesterday + today (채널별 일별 누적) */
 #define HLW8112_TODAY_SANITY_KWH      50.0f
 #define HLW8112_YESTERDAY_SANITY_KWH  200.0f
 #define HLW8112_MONTH_SANITY_KWH      3000.0f
@@ -233,11 +234,12 @@ static void HLW8112_ResetMonthEnergy(void) {
 }
 
 static float HLW8112_EnergyTotalA(void) {
-	return g_hlw8112_month_a + g_hlw8112_today_a;
+	/* 검침 구간 누적 = 이전 완료일 합(month) + 어제 + 오늘 */
+	return g_hlw8112_month_a + g_hlw8112_yesterday_a + g_hlw8112_today_a;
 }
 
 static float HLW8112_EnergyTotalB(void) {
-	return g_hlw8112_month_b + g_hlw8112_today_b;
+	return g_hlw8112_month_b + g_hlw8112_yesterday_b + g_hlw8112_today_b;
 }
 #endif
 
@@ -262,7 +264,7 @@ static void HLW8112_LoadDailyEnergy(void) {
 		g_hlw8112_yesterday_b = 0.0f;
 	HLW8112_SanitizeDailyEnergy();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	/* flash TotalConsumption = A채널 월 누적(완료 일수 합, 오늘 제외) */
+	/* flash TotalConsumption = A채널 월 누적(어제·오늘 제외, 완료 일수 합) */
 	g_hlw8112_month_a = em.TotalConsumption;
 	HLW8112_SanitizeMonthEnergy(&g_hlw8112_month_a);
 	/* 구버전: TotalConsumption = 칩 Import 미러 → 월 누적으로 초기화 */
@@ -365,10 +367,10 @@ static void HLW8112_CheckDailyRollover(void) {
 	if (g_hlw8112_daily_ymd == ymd)
 		return;
 
-	/* NTP 로컬 자정: 완료 일수 → 월 누적, 오늘 → Yesterday, 새 날 Today=0 */
+	/* NTP 자정: 어제 → month 누적, 오늘 → Yesterday, 새 날 Today=0 */
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-	g_hlw8112_month_a += g_hlw8112_today_a;
-	g_hlw8112_month_b += g_hlw8112_today_b;
+	g_hlw8112_month_a += g_hlw8112_yesterday_a;
+	g_hlw8112_month_b += g_hlw8112_yesterday_b;
 	HLW8112_SanitizeMonthEnergy(&g_hlw8112_month_a);
 	HLW8112_SanitizeMonthEnergy(&g_hlw8112_month_b);
 #endif
