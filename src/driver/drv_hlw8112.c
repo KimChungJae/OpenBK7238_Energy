@@ -183,6 +183,8 @@ static int HLW8112_YmdValid(uint32_t ymd) {
 	return isValidDate(y, m, d) ? 1 : 0;
 }
 
+static void HLW8112_SanitizeDailyEnergy(void);
+
 static void HLW8112_LoadDailyEnergy(void) {
 	ENERGY_METERING_DATA em;
 	uint32_t stored;
@@ -193,15 +195,16 @@ static void HLW8112_LoadDailyEnergy(void) {
 	g_hlw8112_yesterday_a = em.YesterdayConsumption;
 	g_hlw8112_today_b = em.ConsumptionHistory[0];
 	g_hlw8112_yesterday_b = em.ConsumptionHistory[1];
-	/* flash 오염(Export 누적 등) 시 일일 값 복구 */
-	if (g_hlw8112_today_a < 0.0f || g_hlw8112_today_a > 500.0f)
+	/* flash 오염(Export 누적·Today=Import 혼입) 시 일일 값 복구 */
+	if (g_hlw8112_today_a < 0.0f || g_hlw8112_today_a > HLW8112_TODAY_SANITY_KWH)
 		g_hlw8112_today_a = 0.0f;
-	if (g_hlw8112_today_b < 0.0f || g_hlw8112_today_b > 500.0f)
+	if (g_hlw8112_today_b < 0.0f || g_hlw8112_today_b > HLW8112_TODAY_SANITY_KWH)
 		g_hlw8112_today_b = 0.0f;
-	if (g_hlw8112_yesterday_a < 0.0f || g_hlw8112_yesterday_a > 200.0f)
+	if (g_hlw8112_yesterday_a < 0.0f || g_hlw8112_yesterday_a > HLW8112_YESTERDAY_SANITY_KWH)
 		g_hlw8112_yesterday_a = 0.0f;
-	if (g_hlw8112_yesterday_b < 0.0f || g_hlw8112_yesterday_b > 200.0f)
+	if (g_hlw8112_yesterday_b < 0.0f || g_hlw8112_yesterday_b > HLW8112_YESTERDAY_SANITY_KWH)
 		g_hlw8112_yesterday_b = 0.0f;
+	HLW8112_SanitizeDailyEnergy();
 	stored = (uint32_t)em.ConsumptionResetTime;
 	if (HLW8112_YmdValid(stored))
 		g_hlw8112_daily_ymd = stored;
@@ -232,6 +235,36 @@ static void HLW8112_SaveDailyEnergy(void) {
 #endif
 	em.save_counter++;
 	HAL_SetEnergyMeterStatus(&em);
+}
+
+/* Today가 Import 누적보다 크면 flash 오염(Clear 후 429kWh 잔재 등) */
+static void HLW8112_SanitizeDailyEnergy(void) {
+	int dirty = 0;
+
+	if (g_hlw8112_today_a > 1.0f && g_hlw8112_today_a > (float)energy_acc_a.Import + 0.05f) {
+		g_hlw8112_today_a = (float)energy_acc_a.Import;
+		dirty = 1;
+	}
+	if (g_hlw8112_today_b > 1.0f && g_hlw8112_today_b > (float)energy_acc_b.Import + 0.05f) {
+		g_hlw8112_today_b = (float)energy_acc_b.Import;
+		dirty = 1;
+	}
+	if (dirty)
+		HLW8112_SaveDailyEnergy();
+}
+
+static void HLW8112_ClearDailyEnergyChannel(HLW8112_Channel_t channel) {
+	if (channel == HLW8112_CHANNEL_A)
+		g_hlw8112_today_a = 0.0f;
+	else
+		g_hlw8112_today_b = 0.0f;
+	HLW8112_SaveDailyEnergy();
+}
+
+static void HLW8112_ClearDailyEnergyBoth(void) {
+	g_hlw8112_today_a = 0.0f;
+	g_hlw8112_today_b = 0.0f;
+	HLW8112_SaveDailyEnergy();
 }
 
 static void HLW8112_PeriodicFlashSave(void) {
@@ -998,8 +1031,9 @@ static void HLW8112_ClearEnergyBoth(void) {
 	CHANNEL_Set(HLW8112_Channel_import_A, 0, HLW8112_CH_MQTT_SKIP);
 	CHANNEL_Set(HLW8112_Channel_export_B, 0, HLW8112_CH_MQTT_SKIP);
 	CHANNEL_Set(HLW8112_Channel_import_B, 0, HLW8112_CH_MQTT_SKIP);
+	HLW8112_ClearDailyEnergyBoth();
 	HLW8112_SaveEnergyFlashBoth();
-	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: A·B 모두 0 (flash 1회)");
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: A·B Import/Export/Today 0 (flash)");
 }
 #endif
 
@@ -1044,7 +1078,8 @@ void HLW8112_Set_EnergyStat(HLW8112_Channel_t channel, float import, float expor
 		HLW8112_DiagEnd();
 		HLW8112_SaveEnergyFlashOne(data,
 			channel == HLW8112_CHANNEL_B ? ENERGY_CHANNEL_B : ENERGY_CHANNEL_A);
-		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: channel_%c = 0",
+		HLW8112_ClearDailyEnergyChannel(channel);
+		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: channel_%c Import/Export/Today=0",
 			channel == HLW8112_CHANNEL_B ? 'b' : 'a');
 		HLW8112_ClearEnergyTryEnd();
 		return;
@@ -2348,6 +2383,7 @@ void HLW8112_RunEverySecond(void) {
     HLW8112_ScaleAndUpdate(&data);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	HLW8112_CheckDailyRollover();
+	HLW8112_SanitizeDailyEnergy();
 	HLW8112_PeriodicFlashSave();
 	HLW8112_BK7238_WatchChannelB();
 	{
@@ -2374,6 +2410,9 @@ void appendBitFlag(char *name, uint32_t regValue, uint8_t bitNum, http_request_t
 }
 
 /* IONE_BK7238_REGFIX58: Web 표 5열 정렬 — colgroup·합계 colspan·라벨 nowrap */
+/* IONE_BK7238_REGFIX59: clear_energy 시 Today flash 0·일일값 오염 자동 복구 */
+#define HLW8112_TODAY_SANITY_KWH   50.0f
+#define HLW8112_YESTERDAY_SANITY_KWH 200.0f
 
 static void HLW8112_AppendWebTableStyles(http_request_t *request) {
 	poststr(request,
