@@ -132,10 +132,16 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX58: Web 표 5열 정렬 — colgroup·합계 colspan·라벨 nowrap */
 /* IONE_BK7238_REGFIX59: clear_energy 시 Today flash 0·일일값 오염 자동 복구 */
 /* IONE_BK7238_REGFIX60: Web 표 3열·Channel A/B 값 우측 정렬 */
+/* IONE_BK7238_REGFIX61: Energy Total — 채널별 월 누적(일별 합+오늘)·flash·MQTT·EnergyTotal 0 */
 #define HLW8112_TODAY_SANITY_KWH      50.0f
 #define HLW8112_YESTERDAY_SANITY_KWH  200.0f
+#define HLW8112_MONTH_SANITY_KWH      3000.0f
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+#include <easyflash.h>
+#define HLW8112_MONTH_B_ENV  "HLW_MON_B"
+#endif
 static uint16_t g_hlw8112_teleperiod_sec = 10;
 static uint16_t g_hlw8112_tele_tick;
 static uint8_t g_hlw8112_mqtt_was_up;
@@ -143,6 +149,8 @@ static float g_hlw8112_today_a;
 static float g_hlw8112_today_b;
 static float g_hlw8112_yesterday_a;
 static float g_hlw8112_yesterday_b;
+static float g_hlw8112_month_a;
+static float g_hlw8112_month_b;
 static uint32_t g_hlw8112_daily_ymd;
 static uint8_t g_hlw8112_daily_save_cd;
 static uint16_t g_hlw8112_flash_period_sec;
@@ -154,6 +162,14 @@ static void HLW8112_CheckDailyRollover(void);
 static void HLW8112_AddDailyImportKwh(float kwh_a, float kwh_b);
 static void HLW8112_PeriodicFlashSave(void);
 static uint32_t HLW8112_LocalYmd(void);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+static void HLW8112_SanitizeMonthEnergy(float *kwh);
+static void HLW8112_LoadMonthEnergyB(void);
+static void HLW8112_SaveMonthEnergyB(void);
+static void HLW8112_ResetMonthEnergy(void);
+static float HLW8112_EnergyTotalA(void);
+static float HLW8112_EnergyTotalB(void);
+#endif
 
 static void HLW8112_TeleResetTick(void) {
 	/* 다음 RunEverySecond에서 바로 1회 발행 */
@@ -189,6 +205,42 @@ static int HLW8112_YmdValid(uint32_t ymd) {
 
 static void HLW8112_SanitizeDailyEnergy(void);
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+static void HLW8112_SanitizeMonthEnergy(float *kwh) {
+	if (*kwh < 0.0f || *kwh > HLW8112_MONTH_SANITY_KWH)
+		*kwh = 0.0f;
+}
+
+static void HLW8112_LoadMonthEnergyB(void) {
+	size_t len = 0;
+
+	g_hlw8112_month_b = 0.0f;
+	ef_get_env_blob(HLW8112_MONTH_B_ENV, &g_hlw8112_month_b, sizeof(g_hlw8112_month_b), &len);
+	if (len != sizeof(g_hlw8112_month_b))
+		g_hlw8112_month_b = 0.0f;
+	HLW8112_SanitizeMonthEnergy(&g_hlw8112_month_b);
+}
+
+static void HLW8112_SaveMonthEnergyB(void) {
+	ef_set_env_blob(HLW8112_MONTH_B_ENV, &g_hlw8112_month_b, sizeof(g_hlw8112_month_b));
+}
+
+static void HLW8112_ResetMonthEnergy(void) {
+	g_hlw8112_month_a = 0.0f;
+	g_hlw8112_month_b = 0.0f;
+	HLW8112_SaveDailyEnergy();
+	HLW8112_SaveMonthEnergyB();
+}
+
+static float HLW8112_EnergyTotalA(void) {
+	return g_hlw8112_month_a + g_hlw8112_today_a;
+}
+
+static float HLW8112_EnergyTotalB(void) {
+	return g_hlw8112_month_b + g_hlw8112_today_b;
+}
+#endif
+
 static void HLW8112_LoadDailyEnergy(void) {
 	ENERGY_METERING_DATA em;
 	uint32_t stored;
@@ -209,6 +261,17 @@ static void HLW8112_LoadDailyEnergy(void) {
 	if (g_hlw8112_yesterday_b < 0.0f || g_hlw8112_yesterday_b > HLW8112_YESTERDAY_SANITY_KWH)
 		g_hlw8112_yesterday_b = 0.0f;
 	HLW8112_SanitizeDailyEnergy();
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	/* flash TotalConsumption = A채널 월 누적(완료 일수 합, 오늘 제외) */
+	g_hlw8112_month_a = em.TotalConsumption;
+	HLW8112_SanitizeMonthEnergy(&g_hlw8112_month_a);
+	/* 구버전: TotalConsumption = 칩 Import 미러 → 월 누적으로 초기화 */
+	if (g_hlw8112_month_a > 0.5f &&
+		fabsf(g_hlw8112_month_a - (float)energy_acc_a.Import) < 0.02f) {
+		g_hlw8112_month_a = 0.0f;
+	}
+	HLW8112_LoadMonthEnergyB();
+#endif
 	stored = (uint32_t)em.ConsumptionResetTime;
 	if (HLW8112_YmdValid(stored))
 		g_hlw8112_daily_ymd = stored;
@@ -233,9 +296,13 @@ static void HLW8112_SaveDailyEnergy(void) {
 	em.ConsumptionHistory[1] = g_hlw8112_yesterday_b;
 	em.ConsumptionResetTime = (time_t)g_hlw8112_daily_ymd;
 	em.actual_mday = (char)(g_hlw8112_daily_ymd > 0 ? (g_hlw8112_daily_ymd % 100u) : 0);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	em.TotalConsumption = g_hlw8112_month_a;
+#else
 	em.TotalConsumption = (float)energy_acc_a.Import;
 #if ENABLE_BL_TWIN
 	em.TotalConsumption_b = (float)energy_acc_b.Import;
+#endif
 #endif
 	em.save_counter++;
 	HAL_SetEnergyMeterStatus(&em);
@@ -277,6 +344,9 @@ static void HLW8112_PeriodicFlashSave(void) {
 		return;
 	g_hlw8112_flash_period_sec = 0;
 	HLW8112_SaveDailyEnergy();
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_SaveMonthEnergyB();
+#endif
 	HLW8112_save_stats(HLW8112_SAVE_ALL | HLW8112_SAVE_FORCE);
 }
 
@@ -295,17 +365,33 @@ static void HLW8112_CheckDailyRollover(void) {
 	if (g_hlw8112_daily_ymd == ymd)
 		return;
 
-	/* NTP 로컬 자정: 오늘 24h → Yesterday, 새 날 Today=0 */
+	/* NTP 로컬 자정: 완료 일수 → 월 누적, 오늘 → Yesterday, 새 날 Today=0 */
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	g_hlw8112_month_a += g_hlw8112_today_a;
+	g_hlw8112_month_b += g_hlw8112_today_b;
+	HLW8112_SanitizeMonthEnergy(&g_hlw8112_month_a);
+	HLW8112_SanitizeMonthEnergy(&g_hlw8112_month_b);
+#endif
 	g_hlw8112_yesterday_a = g_hlw8112_today_a;
 	g_hlw8112_yesterday_b = g_hlw8112_today_b;
 	g_hlw8112_today_a = 0.0f;
 	g_hlw8112_today_b = 0.0f;
 	g_hlw8112_daily_ymd = ymd;
 	HLW8112_SaveDailyEnergy();
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	HLW8112_SaveMonthEnergyB();
+#endif
 	HLW8112_save_stats(HLW8112_SAVE_ALL | HLW8112_SAVE_FORCE);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
+		"HLW8112 daily rollover %u Yesterday_A=%.3f Yesterday_B=%.3f Month_A=%.3f Month_B=%.3f kWh",
+		(unsigned)ymd, g_hlw8112_yesterday_a, g_hlw8112_yesterday_b,
+		g_hlw8112_month_a, g_hlw8112_month_b);
+#else
 	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
 		"HLW8112 daily rollover %u Yesterday_A=%.3f Yesterday_B=%.3f kWh",
 		(unsigned)ymd, g_hlw8112_yesterday_a, g_hlw8112_yesterday_b);
+#endif
 }
 
 static void HLW8112_AddDailyImportKwh(float kwh_a, float kwh_b) {
@@ -1610,6 +1696,28 @@ static commandResult_t HLW8112_CmdTelePeriod(const void *context, const char *cm
 	HLW8112_TeleTryPublish();
 	return CMD_RES_OK;
 }
+
+static commandResult_t HLW8112_CmdEnergyTotal(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	int val;
+
+	Tokenizer_TokenizeString(args, 0);
+	if (Tokenizer_GetArg(0)[0] == 0) {
+		HLW8112_CmdHttpLine("EnergyTotal A=%.3f B=%.3f kWh",
+			HLW8112_EnergyTotalA(), HLW8112_EnergyTotalB());
+		return CMD_RES_OK;
+	}
+	val = Tokenizer_GetArgInteger(0);
+	if (val == 0) {
+		HLW8112_ResetMonthEnergy();
+		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
+			"EnergyTotal: month A/B reset (H750 검침일)");
+		HLW8112_CmdHttpLine("EnergyTotal reset OK");
+		HLW8112_TeleTryPublish();
+		return CMD_RES_OK;
+	}
+	ADDLOG_WARN(LOG_FEATURE_ENERGYMETER, "EnergyTotal: 0 only (month reset)");
+	return CMD_RES_BAD_ARGUMENT;
+}
 #endif
 
 void HLW8112_addCommads(void){
@@ -1641,6 +1749,7 @@ void HLW8112_addCommads(void){
 	CMD_RegisterCommand("HLW8112_phase", HLW8112_CmdPhase, NULL);
 	CMD_RegisterCommand("HLW8112_pagain", HLW8112_CmdPagain, NULL);
 	CMD_RegisterCommand("HLW8112_psgain", HLW8112_CmdPsgain, NULL);
+	CMD_RegisterCommand("EnergyTotal", HLW8112_CmdEnergyTotal, NULL);
 #endif
 #if HLW8112_SPI_RAWACCESS
 	//cmddetail:{"name":"HLW8112_write_reg","args":"TODO",
@@ -2159,10 +2268,11 @@ static float HLW8112_RoundChPF(int32_t pf) {
 
 /* IONE_BK7238_REGFIX47: tele/…/SENSOR = Web Configure MQTT → Client Topic (Base Topic) */
 static void HLW8112_IoneMqttPublishEnergy(void) {
-	char payload[720];
+	char payload[800];
 	const char *timeStr;
 	const char *mqttTopic;
 	float v, cur_a, cur_b, p_a, p_b, s, pf, freq, total_a, total_b, export_a, export_b, reactive;
+	float et_a, et_b;
 	char topic[64];
 
 	if (!Main_HasMQTTConnected())
@@ -2190,10 +2300,14 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 			reactive = -reactive;
 	}
 
+	et_a = HLW8112_EnergyTotalA();
+	et_b = HLW8112_EnergyTotalB();
+
 	timeStr = TS2STR(TIME_GetCurrentTime(), TIME_FORMAT_ISO_8601);
 	snprintf(payload, sizeof(payload),
 		"{\"Time\":\"%s\",\"ENERGY\":{"
 		"\"Total_A\":%.3f,\"Total_B\":%.3f,"
+		"\"EnergyTotal_A\":%.3f,\"EnergyTotal_B\":%.3f,"
 		"\"Export_A\":%.3f,\"Export_B\":%.3f,"
 		"\"Yesterday_A\":%.3f,\"Yesterday_B\":%.3f,"
 		"\"Today\":%.3f,\"Yesterday\":%.3f,"
@@ -2203,7 +2317,7 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 		"\"Factor_A\":%.2f,\"Voltage\":%.1f,"
 		"\"Current_A\":%.3f,\"Current_B\":%.3f,"
 		"\"Frequency\":%.1f}}",
-		timeStr, total_a, total_b, export_a, export_b,
+		timeStr, total_a, total_b, et_a, et_b, export_a, export_b,
 		g_hlw8112_yesterday_a, g_hlw8112_yesterday_b,
 		g_hlw8112_today_a + g_hlw8112_today_b,
 		g_hlw8112_yesterday_a + g_hlw8112_yesterday_b,
@@ -2537,6 +2651,10 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 	appendChannelTableRow(request, "Export", "kWh", last_update_data.ea->Export, last_update_data.eb->Export, 4);
 	appendChannelTableRow(request, "Today", "kWh", g_hlw8112_today_a, g_hlw8112_today_b, 4);
 	appendChannelTableRow(request, "Yesterday", "kWh", g_hlw8112_yesterday_a, g_hlw8112_yesterday_b, 4);
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	appendChannelTableRow(request, "Energy Total", "kWh",
+		HLW8112_EnergyTotalA(), HLW8112_EnergyTotalB(), 4);
+#endif
 
 	poststr(request, "<tr class='hlw-sec'><td colspan='3'>Daily Total (A+B)</td></tr>");
 	appendChannelTotalRow(request, "Today Total", "kWh", g_hlw8112_today_a + g_hlw8112_today_b, 4);
