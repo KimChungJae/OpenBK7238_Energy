@@ -128,6 +128,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX54: IONE-Energy-Meta-2CH(하이픈) 베이스명 지원 */
 /* IONE_BK7238_REGFIX55: Web Today/Yesterday Energy (A/B) */
 /* IONE_BK7238_REGFIX56: Today/Yesterday 합계·flash 일일값 복구·B Export abs */
+/* IONE_BK7238_REGFIX57: Web HLW8112 표 #energy 분리 — #state AJAX 시 표 소실 방지 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;

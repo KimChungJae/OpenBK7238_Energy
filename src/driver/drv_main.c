@@ -1767,8 +1767,20 @@ void DRV_OnHassDiscovery(const char *topic) {
 void DRV_AppendInformationToHTTPIndexPage(http_request_t* request, int bPreState) {
 	int i, j;
 	int c_active = 0;
+	/* IONE_BK7238_REGFIX57: HTTP 표시는 mutex 대기 길게, 실패 시 HLW8112 캐시만이라도 출력 */
+	int mutex_ms = bPreState ? 100 : 500;
 
-	if (DRV_Mutex_Take(100) == false) {
+	if (DRV_Mutex_Take(mutex_ms) == false) {
+		if (bPreState == false) {
+			for (i = 0; i < g_numDrivers; i++) {
+				if (g_drivers[i].bLoaded && g_drivers[i].appendInformationToHTTPIndexPage
+					&& !strcmp(g_drivers[i].name, "HLW8112SPI")) {
+					g_drivers[i].appendInformationToHTTPIndexPage(request, false);
+					hprintf255(request, "<h5>%i drivers active (HLW8112 cache)</h5>", 1);
+					break;
+				}
+			}
+		}
 		return;
 	}
 #ifndef OBK_DISABLE_ALL_DRIVERS

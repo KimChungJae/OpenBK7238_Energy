@@ -278,6 +278,15 @@ int http_fn_index(http_request_t* request) {
 	}
 	http_setup(request, httpMimeTypeHTML);	//Add mimetype regardless of the request
 
+	/* IONE_BK7238_REGFIX57: energy=1 — HLW8112 표만 갱신 (#state AJAX와 분리) */
+	if (http_getArg(request->url, "energy", tmpA, sizeof(tmpA))) {
+#ifndef OBK_DISABLE_ALL_DRIVERS
+		DRV_AppendInformationToHTTPIndexPage(request, false);
+#endif
+		poststr(request, NULL);
+		return 0;
+	}
+
 	// use ?state URL parameter to only request current state
 	if (!http_getArg(request->url, "state", tmpA, sizeof(tmpA))) {
 		// full update - include header
@@ -394,6 +403,13 @@ int http_fn_index(http_request_t* request) {
 #endif
 #ifndef OBK_DISABLE_ALL_DRIVERS
 		DRV_AppendInformationToHTTPIndexPage(request, true);
+		/* IONE_BK7238_REGFIX57: HLW8112 에너지 표는 #state 밖 — AJAX 교체 시 표 소실 방지 */
+		poststr(request, "<div id=\"energy\">");
+		DRV_AppendInformationToHTTPIndexPage(request, false);
+		poststr(request, "</div>");
+		poststr(request, "<script>(function(){var reqE=null;function showEnergy(){var el=document.getElementById('energy');if(!el)return;if(reqE)reqE.abort();reqE=new XMLHttpRequest();reqE.onreadystatechange=function(){if(reqE.readyState==4&&reqE.statusText==='OK')el.innerHTML=reqE.responseText;};reqE.open('GET','index?energy=1',true);reqE.send();}setInterval(showEnergy,");
+		hprintf255(request, "%i", g_indexAutoRefreshInterval);
+		poststr(request, ");})();</script>");
 #endif
 
 		poststr(request, "<div id=\"state\">"); // replaceable content follows
@@ -882,9 +898,6 @@ int http_fn_index(http_request_t* request) {
 #endif
 
 	poststr(request, "</table>");
-#ifndef OBK_DISABLE_ALL_DRIVERS
-	DRV_AppendInformationToHTTPIndexPage(request, false);
-#endif
 
 	if (1) {
 		int bFirst = true;
