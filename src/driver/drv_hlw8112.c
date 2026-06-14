@@ -129,7 +129,10 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX55: Web Today/Yesterday Energy (A/B) */
 /* IONE_BK7238_REGFIX56: Today/Yesterday 합계·flash 일일값 복구·B Export abs */
 /* IONE_BK7238_REGFIX57: Web HLW8112 표 #energy 분리 — #state AJAX 시 표 소실 방지 */
-/* IONE_BK7238_REGFIX58: Web 표 5열 정렬 — Today Total 등 colspan·CSS 통일 */
+/* IONE_BK7238_REGFIX58: Web 표 5열 정렬 — colgroup·합계 colspan·라벨 nowrap */
+/* IONE_BK7238_REGFIX59: clear_energy 시 Today flash 0·일일값 오염 자동 복구 */
+#define HLW8112_TODAY_SANITY_KWH      50.0f
+#define HLW8112_YESTERDAY_SANITY_KWH  200.0f
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -2408,11 +2411,6 @@ void appendBitFlag(char *name, uint32_t regValue, uint8_t bitNum, http_request_t
 	hprintf255(request, "<div class='reg-flag'><span>%s</span><span>%d</span></div>", name, ((regValue & ( 1 << bitNum)) > 0 ? 1 : 0) );
   
 }
-
-/* IONE_BK7238_REGFIX58: Web 표 5열 정렬 — colgroup·합계 colspan·라벨 nowrap */
-/* IONE_BK7238_REGFIX59: clear_energy 시 Today flash 0·일일값 오염 자동 복구 */
-#define HLW8112_TODAY_SANITY_KWH   50.0f
-#define HLW8112_YESTERDAY_SANITY_KWH 200.0f
 
 static void HLW8112_AppendWebTableStyles(http_request_t *request) {
 	poststr(request,
