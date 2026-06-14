@@ -201,6 +201,7 @@ jobs:
           grep -q "IONE_BK7238_REGFIX58" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX59" src/driver/drv_hlw8112.c
           grep -q "HLW8112_TODAY_SANITY_KWH" src/driver/drv_hlw8112.c
+          grep -q "HLW8112_SanitizeDailyEnergy" src/driver/drv_hlw8112.c
           grep -q "hlw8112-wrap" src/driver/drv_hlw8112.c
           grep -q "g_hiddenChannels" src/driver/drv_hlw8112.c
           grep -q "appendChannelTotalRow" src/driver/drv_hlw8112.c
