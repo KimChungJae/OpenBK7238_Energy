@@ -126,6 +126,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX52: HLW8112_psgain CLI — PSGAIN(0x11) 피상전력 보정, PF= P/S 튜닝 */
 /* IONE_BK7238_REGFIX53: user_main — Client Topic 베이스 + MAC 6hex (tele/SENSOR 토픽 분리) */
 /* IONE_BK7238_REGFIX54: IONE-Energy-Meta-2CH(하이픈) 베이스명 지원 */
+/* IONE_BK7238_REGFIX55: Web Today/Yesterday Energy (A/B) */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -2431,6 +2432,8 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 	appendChannelTableRow(request, "Active Power", "W", last_update_data.pa, last_update_data.pb, 1,1000 );
 	appendChannelTableRow(request, "Import Energy", "KWh", last_update_data.ea->Import, last_update_data.eb->Import, 4 , 1 );
 	appendChannelTableRow(request, "Export Energy", "KWh", last_update_data.ea->Export, last_update_data.eb->Export, 4 , 1 );
+	appendChannelTableRow(request, "Today Energy", "KWh", g_hlw8112_today_a, g_hlw8112_today_b, 4 , 1 );
+	appendChannelTableRow(request, "Yesterday Energy", "KWh", g_hlw8112_yesterday_a, g_hlw8112_yesterday_b, 4 , 1 );
 
 	poststr(request,
           "<tr><td><b>Actions</b></td><td style='text-align: right;'> \
