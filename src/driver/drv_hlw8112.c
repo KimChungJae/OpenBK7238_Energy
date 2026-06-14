@@ -124,6 +124,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX50: HLW8112_pagain CLI — PAGAIN/PBGAIN 유효전력 gain 보정 */
 /* IONE_BK7238_REGFIX51: PAGAIN/PBGAIN WriteRegister16 verify 생략 (BK7238 SPI readback off) */
 /* IONE_BK7238_REGFIX52: HLW8112_psgain CLI — PSGAIN(0x11) 피상전력 보정, PF= P/S 튜닝 */
+/* IONE_BK7238_REGFIX53: user_main — Client Topic 베이스 + MAC 6hex (tele/SENSOR 토픽 분리) */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;

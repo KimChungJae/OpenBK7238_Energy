@@ -1483,6 +1483,44 @@ void Main_ForceUnsafeInit() {
 	Main_Init_AfterDelay_Unsafe(false);
 	bSafeMode = 0;
 }
+#if (OBK_VARIANT == OBK_VARIANT_HLW8112)
+/* IONE_BK7238_REGFIX53: Web Client Topic 베이스 + MAC 하위 3바이트(6hex) 자동 부여
+ * 예) IONE-Energy-Meta_2CH → IONE-Energy-Meta_2CH_132D65 (MAC …:13:2D:65) */
+static void IONE_ApplyMqttTopicMacSuffix(void)
+{
+	static const char *bases[] = {
+		"IONE-Energy-Meta_2CH",
+		"IONE-Energy-Meta_1CH",
+		"Energy_Meta_2CH",
+		"Energy_Meta_1CH",
+	};
+	unsigned char mac[6];
+	char expected[CGF_MQTT_CLIENT_ID_SIZE];
+	const char *cur = CFG_GetMQTTClientId();
+	size_t i;
+
+	WiFI_GetMacAddress((char *)mac);
+
+	for (i = 0; i < sizeof(bases) / sizeof(bases[0]); i++) {
+		const char *base = bases[i];
+		size_t blen = strlen(base);
+
+		if (strcmp(cur, base) != 0) {
+			if (strncmp(cur, base, blen) != 0 || (cur[blen] != '\0' && cur[blen] != '_'))
+				continue;
+		}
+
+		snprintf(expected, sizeof(expected), "%s_%02X%02X%02X",
+			base, mac[3], mac[4], mac[5]);
+		if (strcmp(cur, expected) != 0) {
+			ADDLOG_INFO(LOG_FEATURE_MAIN, "MQTT Client Topic: %s -> %s", cur, expected);
+			CFG_SetMQTTClientId(expected);
+		}
+		return;
+	}
+}
+#endif
+
 //////////////////////////////////////////////////////
 // do things which should happen BEFORE we delay at Startup
 // e.g. set lights to last value, so we get immediate response at
@@ -1510,6 +1548,10 @@ void Main_Init_Before_Delay()
 		ADDLOGF_INFO("###### safe mode activated - boot failures %d", g_bootFailures);
 	}
 	CFG_InitAndLoad();
+
+#if (OBK_VARIANT == OBK_VARIANT_HLW8112)
+	IONE_ApplyMqttTopicMacSuffix();
+#endif
 
 #if ENABLE_LITTLEFS
 	LFSAddCmds();
