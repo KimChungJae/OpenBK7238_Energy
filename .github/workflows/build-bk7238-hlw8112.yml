@@ -71,6 +71,7 @@ on:
       - 'scripts/hlw8112_bk7238_tune51.py'
       - 'scripts/hlw8112_bk7238_tune52.py'
       - 'scripts/hlw8112_bk7238_tune53.py'
+      - 'scripts/hlw8112_bk7238_tune54.py'
       - 'src/driver/drv_hlw8112.c'
       - 'src/user_main.c'
       - 'src/driver/drv_main.c'
@@ -177,6 +178,7 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune51.py
           python3 scripts/hlw8112_bk7238_tune52.py
           python3 scripts/hlw8112_bk7238_tune53.py
+          python3 scripts/hlw8112_bk7238_tune54.py
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
@@ -187,6 +189,8 @@ jobs:
           grep -q "IONE_BK7238_REGFIX51" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX52" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX53" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX54" src/driver/drv_hlw8112.c
+          grep -q "IONE-Energy-Meta-2CH" src/user_main.c
           grep -q "IONE_ApplyMqttTopicMacSuffix" src/user_main.c
           grep -q "PHASE verify fail" src/driver/drv_hlw8112.c
           grep -q 'CMD_RegisterCommand("HLW8112_phase"' src/driver/drv_hlw8112.c
@@ -215,7 +219,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix53"
+          APP_VER="${SHA}_hlw8112_spifix54"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 
