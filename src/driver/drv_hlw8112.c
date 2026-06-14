@@ -129,6 +129,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX55: Web Today/Yesterday Energy (A/B) */
 /* IONE_BK7238_REGFIX56: Today/Yesterday 합계·flash 일일값 복구·B Export abs */
 /* IONE_BK7238_REGFIX57: Web HLW8112 표 #energy 분리 — #state AJAX 시 표 소실 방지 */
+/* IONE_BK7238_REGFIX58: Web 표 5열 정렬 — Today Total 등 colspan·CSS 통일 */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -1669,9 +1670,15 @@ void HLW8112_Init_Channels() {
 	CHANNEL_SetLabel(HLW8112_Channel_import_A , "Energy Import A", 1);
 	CHANNEL_SetLabel(HLW8112_Channel_import_B , "Energy Import B", 1);
 	//CHANNEL_SetLabel(HLW8112_Channel_ResCof_Voltage, "Voltage Resistor Ratio",1 );
-	//CHANNEL_SetLabel(HLW8112_Channel_ResCof_A, "Channel A Resistor Ratio", 1);
-	//CHANNEL_SetLabel(HLW8112_Channel_ResCof_B, "Channel b Resistor Ratio",1 );
-	//CHANNEL_SetLabel(HLW8112_Channel_ResCof_B, "CLK",1 );
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	/* IONE_BK7238_REGFIX58: HLW8112 전용 표 사용 — #state 채널 목록 중복 숨김 */
+	{
+		extern int g_hiddenChannels;
+		int i;
+		for (i = HLW8112_Channel_Voltage; i <= HLW8112_Channel_import_B; i++)
+			BIT_SET(g_hiddenChannels, i);
+	}
+#endif
 
 }
 
@@ -2366,18 +2373,52 @@ void appendBitFlag(char *name, uint32_t regValue, uint8_t bitNum, http_request_t
   
 }
 
-void appendTableRow(http_request_t *request, char *name,char* unit, int32_t value, int precision, float factor) {
-	hprintf255(request,
-        "<tr><td><b>%s</b></td><td style='text-align:right;min-width:8em;font-variant-numeric:tabular-nums;'>%.*f</td><td>%s</td></tr>",
-		name,   precision, value / factor, unit);
+/* IONE_BK7238_REGFIX58: Web 표 5열 정렬 — colgroup·합계 colspan·라벨 nowrap */
+
+static void HLW8112_AppendWebTableStyles(http_request_t *request) {
+	poststr(request,
+		"<style>"
+		".hlw8112-wrap{max-width:580px;margin:0 auto 0.5em;text-align:left}"
+		".hlw8112-tbl{width:100%;border-collapse:collapse;table-layout:fixed}"
+		".hlw8112-tbl td,.hlw8112-tbl th{padding:6px 8px;vertical-align:middle}"
+		".hlw8112-tbl .hlw-lbl{text-align:left;white-space:nowrap;overflow:hidden;"
+		"text-overflow:ellipsis;font-weight:bold}"
+		".hlw8112-tbl .hlw-val{text-align:right;font-variant-numeric:tabular-nums}"
+		".hlw8112-tbl .hlw-unit{text-align:left;color:#b0b0b0;font-size:0.9em;padding-left:2px}"
+		".hlw8112-tbl th.hlw-val{text-align:right;font-weight:normal;color:#ccc}"
+		".hlw8112-tbl tr.hlw-hdr th{border-bottom:1px solid #5a5a5a;padding-bottom:8px}"
+		".hlw8112-tbl tr.hlw-sub th{font-size:0.85em;color:#999;font-weight:normal;padding-top:0}"
+		".hlw8112-tbl tr.hlw-sec td{border-top:1px solid #5a5a5a;padding-top:10px;color:#ccc;"
+		"font-size:0.9em}"
+		".hlw8112-tbl tr.hlw-sum td{border-top:1px solid #5a5a5a;padding-top:8px}"
+		".hlw8112-tbl tr.hlw-act td{padding-top:10px}"
+		".hlw8112-tbl .hlw-btn{background-color:#d43535;color:#fff;border:0;border-radius:4px;"
+		"padding:6px 12px;cursor:pointer;width:100%;max-width:120px}"
+		"</style>");
 }
 
-
-
-void appendChannelTableRow(http_request_t *request, char *name,char* unit, float value_a, float value_b, int precision, float factor) {
+/* 공통(합산) 측정 — A/B 구분 없음, 값은 4열 colspan */
+static void appendSummaryTableRow(http_request_t *request, char *name, char *unit, float value, int precision) {
 	hprintf255(request,
-        "<tr><td><b>%s</b></td><td style='text-align:right;min-width:7em;font-variant-numeric:tabular-nums;'>%.*f</td><td>%s</td><td style='text-align:right;min-width:7em;font-variant-numeric:tabular-nums;'>%.*f</td><td>%s</td></tr>",
-		name, precision, value_a/ factor, unit,precision, value_b/ factor, unit);
+		"<tr><td class='hlw-lbl'>%s</td>"
+		"<td class='hlw-val' colspan='4'>%.*f <span class='hlw-unit'>%s</span></td></tr>",
+		name, precision, value, unit);
+}
+
+static void appendChannelTableRow(http_request_t *request, char *name, char *unit, float value_a, float value_b, int precision) {
+	hprintf255(request,
+		"<tr><td class='hlw-lbl'>%s</td>"
+		"<td class='hlw-val'>%.*f</td><td class='hlw-unit'>%s</td>"
+		"<td class='hlw-val'>%.*f</td><td class='hlw-unit'>%s</td></tr>",
+		name, precision, value_a, unit, precision, value_b, unit);
+}
+
+/* A+B 합계 — 5열 정렬 */
+static void appendChannelTotalRow(http_request_t *request, char *name, char *unit, float total, int precision) {
+	hprintf255(request,
+		"<tr class='hlw-sum'><td class='hlw-lbl'>%s</td>"
+		"<td class='hlw-val' colspan='4'>%.*f <span class='hlw-unit'>%s</span></td></tr>",
+		name, precision, total, unit);
 }
 
 void appendRegEdit(http_request_t *request, char *name,uint16_t reg, bool readonly, 
@@ -2435,33 +2476,49 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 		return;
 	}
 
-	poststr(request, "<hr><table style='width:100%'>");
-	appendTableRow(request, "Voltage", "V", last_update_data.v_rms, 1,1000.0f );
-	appendTableRow(request, "Frequency", "Hz", last_update_data.freq, 1, 100.0f );
-	appendTableRow(request, "Active Power", "W", last_update_data.pa, 1,1000.0f );
-	appendTableRow(request, "Apparent Power", "VA", last_update_data.ap, 1, 1000.0f );
-	appendTableRow(request, "Power Factor", "%", last_update_data.pf, 1, 10.0f );
-	poststr(request, "</table>");
+	HLW8112_AppendWebTableStyles(request);
+	poststr(request, "<div class='hlw8112-wrap'><table class='hlw8112-tbl'>");
+	poststr(request, "<colgroup>"
+		"<col style='width:34%'>"
+		"<col style='width:24%'>"
+		"<col style='width:8%'>"
+		"<col style='width:24%'>"
+		"<col style='width:10%'>"
+		"</colgroup>");
+	poststr(request, "<tr class='hlw-hdr'><th class='hlw-lbl'></th>"
+		"<th class='hlw-val' colspan='2'>Channel A</th>"
+		"<th class='hlw-val' colspan='2'>Channel B</th></tr>");
+	poststr(request, "<tr class='hlw-sub'><th class='hlw-lbl'></th>"
+		"<th class='hlw-val'>Value</th><th class='hlw-unit'></th>"
+		"<th class='hlw-val'>Value</th><th class='hlw-unit'></th></tr>");
 
-	poststr(request, "<hr><table style='width:100%'>");
-	poststr(request, "<tr><th></th><th>Channel A</th><th></th><th>Channel B</th><th></th></tr>");
-	appendChannelTableRow(request, "Current", "A", last_update_data.ia_rms, last_update_data.ib_rms, 1,1000 );
-	appendChannelTableRow(request, "Active Power", "W", last_update_data.pa, last_update_data.pb, 1,1000 );
-	appendChannelTableRow(request, "Import Energy", "KWh", last_update_data.ea->Import, last_update_data.eb->Import, 4 , 1 );
-	appendChannelTableRow(request, "Export Energy", "KWh", last_update_data.ea->Export, last_update_data.eb->Export, 4 , 1 );
-	appendChannelTableRow(request, "Today Energy", "KWh", g_hlw8112_today_a, g_hlw8112_today_b, 4 , 1 );
-	appendChannelTableRow(request, "Yesterday Energy", "KWh", g_hlw8112_yesterday_a, g_hlw8112_yesterday_b, 4 , 1 );
-	appendTableRow(request, "Today Total", "KWh", (int32_t)((g_hlw8112_today_a + g_hlw8112_today_b) * 10000.0f), 4, 10000.0f);
-	appendTableRow(request, "Yesterday Total", "KWh", (int32_t)((g_hlw8112_yesterday_a + g_hlw8112_yesterday_b) * 10000.0f), 4, 10000.0f);
+	poststr(request, "<tr class='hlw-sec'><td colspan='5'>Common</td></tr>");
+	appendSummaryTableRow(request, "Voltage", "V", last_update_data.v_rms / 1000.0f, 1);
+	appendSummaryTableRow(request, "Frequency", "Hz", last_update_data.freq / 100.0f, 1);
+	appendSummaryTableRow(request, "Apparent Power", "VA", last_update_data.ap / 1000.0f, 1);
+	appendSummaryTableRow(request, "Power Factor", "%", last_update_data.pf / 10.0f, 1);
+
+	poststr(request, "<tr class='hlw-sec'><td colspan='5'>Per Channel</td></tr>");
+	appendChannelTableRow(request, "Current", "A", last_update_data.ia_rms / 1000.0f, last_update_data.ib_rms / 1000.0f, 1);
+	appendChannelTableRow(request, "Active Power", "W", last_update_data.pa / 1000.0f, last_update_data.pb / 1000.0f, 1);
+	appendChannelTableRow(request, "Import", "kWh", last_update_data.ea->Import, last_update_data.eb->Import, 4);
+	appendChannelTableRow(request, "Export", "kWh", last_update_data.ea->Export, last_update_data.eb->Export, 4);
+	appendChannelTableRow(request, "Today", "kWh", g_hlw8112_today_a, g_hlw8112_today_b, 4);
+	appendChannelTableRow(request, "Yesterday", "kWh", g_hlw8112_yesterday_a, g_hlw8112_yesterday_b, 4);
+
+	poststr(request, "<tr class='hlw-sec'><td colspan='5'>Daily Total (A+B)</td></tr>");
+	appendChannelTotalRow(request, "Today Total", "kWh", g_hlw8112_today_a + g_hlw8112_today_b, 4);
+	appendChannelTotalRow(request, "Yesterday Total", "kWh", g_hlw8112_yesterday_a + g_hlw8112_yesterday_b, 4);
 
 	poststr(request,
-          "<tr><td><b>Actions</b></td><td style='text-align: right;'> \
-		  <button style='background-color:red;' onclick='location.href=\"?clear_energy=1&channel=a\"'>Clear</button> \
-		  </td><td></td><td style='text-align: right;'>\
-		  <button style='background-color:red;' onclick='location.href=\"?clear_energy=1&channel=b\"'>Clear </button> \
-		  </td><td></td></tr>");
+		"<tr class='hlw-act'><td class='hlw-lbl'>Actions</td>"
+		"<td colspan='2' style='text-align:center'>"
+		"<button class='hlw-btn' onclick='location.href=\"?clear_energy=1&channel=a\"'>Clear A</button>"
+		"</td><td colspan='2' style='text-align:center'>"
+		"<button class='hlw-btn' onclick='location.href=\"?clear_energy=1&channel=b\"'>Clear B</button>"
+		"</td></tr>");
 
-	poststr(request, "</table>");
+	poststr(request, "</table></div>");
 #if HLW8112_SPI_RAWACCESS
 	poststr(request,"<style> \
                 div form { \

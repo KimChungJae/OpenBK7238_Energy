@@ -1797,7 +1797,7 @@ void DRV_AppendInformationToHTTPIndexPage(http_request_t* request, int bPreState
 	DRV_Mutex_Free();
 
 	if (bPreState == false) {
-		hprintf255(request, "<h5>%i drivers active", c_active);
+		hprintf255(request, "<h5 style='max-width:580px;margin:0.5em auto;text-align:left'>%i drivers active", c_active);
 		if (c_active > 0) {
 			j = 0;// printed 0 names so far
 			// generate active drivers list in (  )

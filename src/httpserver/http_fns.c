@@ -404,7 +404,7 @@ int http_fn_index(http_request_t* request) {
 #ifndef OBK_DISABLE_ALL_DRIVERS
 		DRV_AppendInformationToHTTPIndexPage(request, true);
 		/* IONE_BK7238_REGFIX57: HLW8112 에너지 표는 #state 밖 — AJAX 교체 시 표 소실 방지 */
-		poststr(request, "<div id=\"energy\">");
+		poststr(request, "<div id=\"energy\" class=\"hlw8112-wrap\">");
 		DRV_AppendInformationToHTTPIndexPage(request, false);
 		poststr(request, "</div>");
 		poststr(request, "<script>(function(){var reqE=null;function showEnergy(){var el=document.getElementById('energy');if(!el)return;if(reqE)reqE.abort();reqE=new XMLHttpRequest();reqE.onreadystatechange=function(){if(reqE.readyState==4&&reqE.statusText==='OK')el.innerHTML=reqE.responseText;};reqE.open('GET','index?energy=1',true);reqE.send();}setInterval(showEnergy,");

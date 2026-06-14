@@ -182,6 +182,7 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune54.py
           python3 scripts/hlw8112_bk7238_tune55.py
           python3 scripts/hlw8112_bk7238_tune57.py
+          python3 scripts/hlw8112_bk7238_tune58.py
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
@@ -196,6 +197,10 @@ jobs:
           grep -q "IONE_BK7238_REGFIX55" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX56" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX57" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX58" src/driver/drv_hlw8112.c
+          grep -q "hlw8112-wrap" src/driver/drv_hlw8112.c
+          grep -q "g_hiddenChannels" src/driver/drv_hlw8112.c
+          grep -q "appendChannelTotalRow" src/driver/drv_hlw8112.c
           grep -q 'id=\\"energy\\"' src/httpserver/http_fns.c
           grep -q "index?energy=1" src/httpserver/http_fns.c
           grep -q "IONE-Energy-Meta-2CH" src/user_main.c
@@ -227,7 +232,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix57"
+          APP_VER="${SHA}_hlw8112_spifix58"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 

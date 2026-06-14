@@ -586,7 +586,7 @@ void TIME_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreStat
 		sprintf(ntpinfo," (NTP-Server: %s)",CFG_GetNTPServer());
 	}
 #endif
-	if (TIME_IsTimeSynced()) hprintf255(request, "<h5>Local clock: %s"
+	if (TIME_IsTimeSynced()) hprintf255(request, "<h5 style='max-width:580px;margin:0 auto;text-align:left'>Local clock: %s"
 #if ENABLE_TIME_DST
 	"%s"
 #endif 
