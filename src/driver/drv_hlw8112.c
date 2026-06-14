@@ -127,6 +127,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX53: user_main — Client Topic 베이스 + MAC 6hex (tele/SENSOR 토픽 분리) */
 /* IONE_BK7238_REGFIX54: IONE-Energy-Meta-2CH(하이픈) 베이스명 지원 */
 /* IONE_BK7238_REGFIX55: Web Today/Yesterday Energy (A/B) */
+/* IONE_BK7238_REGFIX56: Today/Yesterday 합계·flash 일일값 복구·B Export abs */
 #define HLW8112_CH_MQTT_SKIP  (CHANNEL_SET_FLAG_SKIP_MQTT | CHANNEL_SET_FLAG_SILENT)
 #define HLW8112_FLASH_PERIOD_SEC  300
 static uint16_t g_hlw8112_teleperiod_sec = 10;
@@ -190,6 +191,15 @@ static void HLW8112_LoadDailyEnergy(void) {
 	g_hlw8112_yesterday_a = em.YesterdayConsumption;
 	g_hlw8112_today_b = em.ConsumptionHistory[0];
 	g_hlw8112_yesterday_b = em.ConsumptionHistory[1];
+	/* flash 오염(Export 누적 등) 시 일일 값 복구 */
+	if (g_hlw8112_today_a < 0.0f || g_hlw8112_today_a > 500.0f)
+		g_hlw8112_today_a = 0.0f;
+	if (g_hlw8112_today_b < 0.0f || g_hlw8112_today_b > 500.0f)
+		g_hlw8112_today_b = 0.0f;
+	if (g_hlw8112_yesterday_a < 0.0f || g_hlw8112_yesterday_a > 200.0f)
+		g_hlw8112_yesterday_a = 0.0f;
+	if (g_hlw8112_yesterday_b < 0.0f || g_hlw8112_yesterday_b > 200.0f)
+		g_hlw8112_yesterday_b = 0.0f;
 	stored = (uint32_t)em.ConsumptionResetTime;
 	if (HLW8112_YmdValid(stored))
 		g_hlw8112_daily_ymd = stored;
@@ -2139,6 +2149,7 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 		"\"Total_A\":%.3f,\"Total_B\":%.3f,"
 		"\"Export_A\":%.3f,\"Export_B\":%.3f,"
 		"\"Yesterday_A\":%.3f,\"Yesterday_B\":%.3f,"
+		"\"Today\":%.3f,\"Yesterday\":%.3f,"
 		"\"Today_A\":%.3f,\"Today_B\":%.3f,"
 		"\"Power_A\":%.1f,\"Power_B\":%.1f,"
 		"\"ApparentPower_A\":%.1f,\"ReactivePower_A\":%.1f,"
@@ -2147,6 +2158,8 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 		"\"Frequency\":%.1f}}",
 		timeStr, total_a, total_b, export_a, export_b,
 		g_hlw8112_yesterday_a, g_hlw8112_yesterday_b,
+		g_hlw8112_today_a + g_hlw8112_today_b,
+		g_hlw8112_yesterday_a + g_hlw8112_yesterday_b,
 		g_hlw8112_today_a, g_hlw8112_today_b,
 		p_a, p_b,
 		s, reactive, pf, v, cur_a, cur_b, freq);
@@ -2224,7 +2237,10 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 			HLW8112_AddDailyImportKwh(0.0f, (float)kwh_b);
 #endif
 		}else {
-			energy_acc_b.Export +=  energy_b/ 10000000.0;
+			double kwh_b = (double)energy_b;
+			if (kwh_b < 0.0)
+				kwh_b = -kwh_b;
+			energy_acc_b.Export += kwh_b / 10000000.0;
 			save |= HLW8112_SAVE_B_EXP;
 		}
 	}
@@ -2434,6 +2450,8 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 	appendChannelTableRow(request, "Export Energy", "KWh", last_update_data.ea->Export, last_update_data.eb->Export, 4 , 1 );
 	appendChannelTableRow(request, "Today Energy", "KWh", g_hlw8112_today_a, g_hlw8112_today_b, 4 , 1 );
 	appendChannelTableRow(request, "Yesterday Energy", "KWh", g_hlw8112_yesterday_a, g_hlw8112_yesterday_b, 4 , 1 );
+	appendTableRow(request, "Today Total", "KWh", (int32_t)((g_hlw8112_today_a + g_hlw8112_today_b) * 10000.0f), 4, 10000.0f);
+	appendTableRow(request, "Yesterday Total", "KWh", (int32_t)((g_hlw8112_yesterday_a + g_hlw8112_yesterday_b) * 10000.0f), 4, 10000.0f);
 
 	poststr(request,
           "<tr><td><b>Actions</b></td><td style='text-align: right;'> \
