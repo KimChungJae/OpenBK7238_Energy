@@ -265,21 +265,29 @@ jobs:
 
           cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/
 
-          cp "output/${APP_VER}/OpenBK7238_QIO_${APP_VER}.bin" artifact/ 2>/dev/null || true
+          cp "output/${APP_VER}/OpenBK7238_${APP_VER}.bin" artifact/
+
+          cp "output/${APP_VER}/OpenBK7238_QIO_${APP_VER}.bin" artifact/
+
+          cp "output/${APP_VER}/OpenBK7238_UA_${APP_VER}.bin" artifact/ 2>/dev/null || true
 
           ls -la artifact/
 
 
 
-      - name: Upload RBL
+      - name: Upload firmware artifacts
 
         uses: actions/upload-artifact@v4
 
         with:
 
-          name: OpenBK7238_hlw8112_rbl
+          name: OpenBK7238_hlw8112_spifix65
 
-          path: artifact/*.rbl
+          path: |
+
+            artifact/*.rbl
+
+            artifact/*.bin
 
           if-no-files-found: error
 
