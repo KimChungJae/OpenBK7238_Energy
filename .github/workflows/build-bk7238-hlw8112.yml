@@ -189,6 +189,7 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune61.py
           python3 scripts/hlw8112_bk7238_tune62.py
           python3 scripts/hlw8112_bk7238_tune63.py
+          python3 scripts/hlw8112_bk7238_tune64.py
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
@@ -209,6 +210,9 @@ jobs:
           grep -q "IONE_BK7238_REGFIX61" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX62" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX63" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX64" src/driver/drv_hlw8112.c
+          grep -q "hlw-span" src/driver/drv_hlw8112.c
+          grep -q "max-width:580px" src/driver/drv_hlw8112.c
           grep -q "DeviceRegisterCoeff.EnergyBC" src/driver/drv_hlw8112.c
           grep -q "g_hlw8112_yesterday_a + g_hlw8112_today_a" src/driver/drv_hlw8112.c
           grep -q "EnergyTotal_A" src/driver/drv_hlw8112.c
