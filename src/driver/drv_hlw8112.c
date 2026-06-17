@@ -136,6 +136,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX62: Energy Total = month + yesterday + today (채널별 일별 누적) */
 /* IONE_BK7238_REGFIX63: 유효에너지 HFConst·4096·EnergyBC — 채널별 전력 대비 1/2 누적 보정 */
 /* IONE_BK7238_REGFIX64: Web 표 580px·라벨열 축소·Common/합계 좌측 정렬 — Local clock과 열 맞춤 */
+/* IONE_BK7238_REGFIX65: 제목·표 580px 좌측 정렬, Daily Total 값 좌측 끝(한 줄) 복원 */
 #define HLW8112_TODAY_SANITY_KWH      50.0f
 #define HLW8112_YESTERDAY_SANITY_KWH  200.0f
 #define HLW8112_MONTH_SANITY_KWH      3000.0f
@@ -2543,6 +2544,7 @@ void appendBitFlag(char *name, uint32_t regValue, uint8_t bitNum, http_request_t
 static void HLW8112_AppendWebTableStyles(http_request_t *request) {
 	poststr(request,
 		"<style>"
+		"#main>h1{max-width:580px;margin:0.35em auto 0.2em;text-align:left;padding:0}"
 		".hlw8112-wrap{max-width:580px;margin:0 auto 0.5em;text-align:left;padding:0}"
 		".hlw8112-wrap>h5{max-width:none;margin:0 0 0.35em;padding:0;text-align:left}"
 		".hlw8112-tbl{width:100%;border-collapse:collapse;table-layout:fixed}"
@@ -2550,13 +2552,13 @@ static void HLW8112_AppendWebTableStyles(http_request_t *request) {
 		".hlw8112-tbl .hlw-lbl{text-align:left;white-space:nowrap;font-weight:bold;padding-left:0}"
 		".hlw8112-tbl .hlw-ch{text-align:right;font-variant-numeric:tabular-nums;"
 		"padding-right:4px;white-space:nowrap}"
-		".hlw8112-tbl .hlw-span{text-align:left;padding-left:0;padding-right:4px}"
+		".hlw8112-tbl .hlw-line{text-align:left;padding-left:0;padding-right:0}"
+		".hlw8112-tbl .hlw-line .hlw-val{font-variant-numeric:tabular-nums;font-weight:bold}"
 		".hlw8112-tbl th.hlw-ch{text-align:right;font-weight:normal;color:#ccc}"
 		".hlw8112-tbl .hlw-unit{color:#b0b0b0;font-size:0.9em;margin-left:3px;font-weight:normal}"
 		".hlw8112-tbl tr.hlw-hdr th{border-bottom:1px solid #5a5a5a;padding-bottom:8px}"
 		".hlw8112-tbl tr.hlw-sec td{border-top:1px solid #5a5a5a;padding-top:10px;color:#ccc;"
-		"font-size:0.9em;text-align:left}"
-		".hlw8112-tbl tr.hlw-sum .hlw-ch{font-weight:bold}"
+		"font-size:0.9em;text-align:left;padding-left:0}"
 		".hlw8112-tbl tr.hlw-sum td{border-top:1px solid #5a5a5a;padding-top:8px}"
 		".hlw8112-tbl tr.hlw-act td{padding-top:10px;text-align:center}"
 		".hlw8112-tbl .hlw-btn{background-color:#d43535;color:#fff;border:0;border-radius:4px;"
@@ -2568,7 +2570,7 @@ static void HLW8112_AppendWebTableStyles(http_request_t *request) {
 static void appendSummaryTableRow(http_request_t *request, char *name, char *unit, float value, int precision) {
 	hprintf255(request,
 		"<tr><td class='hlw-lbl'>%s</td>"
-		"<td class='hlw-ch hlw-span' colspan='2'>%.*f<span class='hlw-unit'>%s</span></td></tr>",
+		"<td class='hlw-ch' colspan='2'>%.*f<span class='hlw-unit'>%s</span></td></tr>",
 		name, precision, value, unit);
 }
 
@@ -2581,9 +2583,12 @@ static void appendChannelTableRow(http_request_t *request, char *name, char *uni
 }
 
 static void appendChannelTotalRow(http_request_t *request, char *name, char *unit, float total, int precision) {
+	/* Daily Total — 라벨·값을 표 좌측 끝 한 줄(예전 배치) */
 	hprintf255(request,
-		"<tr class='hlw-sum'><td class='hlw-lbl'>%s</td>"
-		"<td class='hlw-ch hlw-span' colspan='2'>%.*f<span class='hlw-unit'>%s</span></td></tr>",
+		"<tr class='hlw-sum'><td colspan='3' class='hlw-line'>"
+		"<span class='hlw-lbl'>%s</span>&nbsp;&nbsp;"
+		"<span class='hlw-val'>%.*f<span class='hlw-unit'>%s</span></span>"
+		"</td></tr>",
 		name, precision, total, unit);
 }
 
@@ -2645,9 +2650,9 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 	HLW8112_AppendWebTableStyles(request);
 	poststr(request, "<table class='hlw8112-tbl'>");
 	poststr(request, "<colgroup>"
-		"<col style='width:30%'>"
-		"<col style='width:35%'>"
-		"<col style='width:35%'>"
+		"<col style='width:28%'>"
+		"<col style='width:36%'>"
+		"<col style='width:36%'>"
 		"</colgroup>");
 	poststr(request, "<tr class='hlw-hdr'><th class='hlw-lbl'></th>"
 		"<th class='hlw-ch'>Channel A</th>"
