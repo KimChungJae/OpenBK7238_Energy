@@ -274,14 +274,11 @@ jobs:
 
           mkdir -p artifact
 
+          # Artifact: UART(UA) + OTA(rbl) 2개만
           cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/
-
-          cp "output/${APP_VER}/OpenBK7238_${APP_VER}.bin" artifact/
-
-          cp "output/${APP_VER}/OpenBK7238_QIO_${APP_VER}.bin" artifact/
-
-          cp "output/${APP_VER}/OpenBK7238_UA_${APP_VER}.bin" artifact/ 2>/dev/null || true
-
+          cp "output/${APP_VER}/OpenBK7238_UA_${APP_VER}.bin" artifact/
+          test -f "artifact/OpenBK7238_${APP_VER}.rbl"
+          test -f "artifact/OpenBK7238_UA_${APP_VER}.bin"
           ls -la artifact/
 
 
@@ -298,7 +295,7 @@ jobs:
 
             artifact/*.rbl
 
-            artifact/*.bin
+            artifact/*_UA_*.bin
 
           if-no-files-found: error
 
