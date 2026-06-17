@@ -75,6 +75,7 @@ on:
       - 'scripts/hlw8112_bk7238_tune55.py'
       - 'scripts/hlw8112_bk7238_tune62.py'
       - 'scripts/hlw8112_bk7238_tune66.py'
+      - 'scripts/hlw8112_bk7238_tune67.py'
       - 'src/driver/drv_hlw8112.c'
       - 'src/user_main.c'
       - 'src/driver/drv_main.c'
@@ -193,6 +194,7 @@ jobs:
           python3 scripts/hlw8112_bk7238_tune64.py
           python3 scripts/hlw8112_bk7238_tune65.py
           python3 scripts/hlw8112_bk7238_tune66.py
+          python3 scripts/hlw8112_bk7238_tune67.py
 
           grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX46" src/driver/drv_hlw8112.c
@@ -216,6 +218,9 @@ jobs:
           grep -q "IONE_BK7238_REGFIX64" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX65" src/driver/drv_hlw8112.c
           grep -q "IONE_BK7238_REGFIX66" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX67" src/driver/drv_hlw8112.c
+          grep -q "HLW8112_PowerIntKwhPerSec" src/driver/drv_hlw8112.c
+          grep -q "HLW8112_PWR_INT_MIN_mW" src/driver/drv_hlw8112.c
           grep -q "HLW8112_CaptureDailyBootBaseline" src/driver/drv_hlw8112.c
           grep -q "HLW8112_PulseRegToKwh" src/driver/drv_hlw8112.c
           grep -q "g_hlw8112_import_boot_a" src/driver/drv_hlw8112.c
@@ -263,7 +268,7 @@ jobs:
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix66"
+          APP_VER="${SHA}_hlw8112_spifix67"
 
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
 
@@ -287,7 +292,7 @@ jobs:
 
         with:
 
-          name: OpenBK7238_hlw8112_spifix66
+          name: OpenBK7238_hlw8112_spifix67
 
           path: |
 
