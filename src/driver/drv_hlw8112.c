@@ -134,6 +134,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX60: Web 표 3열·Channel A/B 값 우측 정렬 */
 /* IONE_BK7238_REGFIX61: Energy Total — 채널별 월 누적(일별 합+오늘)·flash·MQTT·EnergyTotal 0 */
 /* IONE_BK7238_REGFIX62: Energy Total = month + yesterday + today (채널별 일별 누적) */
+/* IONE_BK7238_REGFIX63: 유효에너지 HFConst·4096·EnergyBC — 채널별 전력 대비 1/2 누적 보정 */
 #define HLW8112_TODAY_SANITY_KWH      50.0f
 #define HLW8112_YESTERDAY_SANITY_KWH  200.0f
 #define HLW8112_MONTH_SANITY_KWH      3000.0f
@@ -1880,8 +1881,19 @@ void HLW8112_compute_scale_factor() {
 	double apa = (double) device.DeviceRegisterCoeff.PowerSC * 1000 / (k1a * k2 * PWR_RESOLUTION);
 	double apb = (double) device.DeviceRegisterCoeff.PowerSC * 1000 / (k1b * k2 * PWR_RESOLUTION);
 
-	double ea = (double) device.DeviceRegisterCoeff.EnergyAC * 10000000 / (k1a * k2 * E_RESOLUTION);
-	double eb = (double) device.DeviceRegisterCoeff.EnergyAC * 10000000 / (k1b * k2 * E_RESOLUTION);
+	/* §10: kWh = Pulse × EnergyXXC × HFConst / (K1 × K2 × 2^29 × 4096) — HFConst 미반영 시 약 1/2 누적 */
+	{
+		double hf_e = (double)device.HFconst;
+		if (hf_e < 1.0)
+			hf_e = 4096.0;
+		const double e_norm = 4096.0;
+		double ea = (double)device.DeviceRegisterCoeff.EnergyAC * hf_e * 10000000.0
+			/ (k1a * k2 * (double)E_RESOLUTION * e_norm);
+		double eb = (double)device.DeviceRegisterCoeff.EnergyBC * hf_e * 10000000.0
+			/ (k1b * k2 * (double)E_RESOLUTION * e_norm);
+		device.ScaleFactor.a.e = ea;
+		device.ScaleFactor.b.e = eb;
+	}
 
 	device.ScaleFactor.v_rms = v;
 	device.ScaleFactor.freq = frq;
@@ -1889,11 +1901,9 @@ void HLW8112_compute_scale_factor() {
 	device.ScaleFactor.a.i = ia;
 	device.ScaleFactor.a.p = pa;
 	device.ScaleFactor.a.ap = apa;
-	device.ScaleFactor.a.e = ea;
 	device.ScaleFactor.b.i = ib;
 	device.ScaleFactor.b.p = pb;
 	device.ScaleFactor.b.ap = apb;
-	device.ScaleFactor.b.e = eb;
 	
 }
 
