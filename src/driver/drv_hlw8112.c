@@ -137,6 +137,7 @@ static uint32_t g_hlw8112_last_clear_ms;
 /* IONE_BK7238_REGFIX63: 유효에너지 HFConst·4096·EnergyBC — 채널별 전력 대비 1/2 누적 보정 */
 /* IONE_BK7238_REGFIX64: Web 표 580px·라벨열 축소·Common/합계 좌측 정렬 — Local clock과 열 맞춤 */
 /* IONE_BK7238_REGFIX65: 제목·표 580px 좌측 정렬, Daily Total 값 좌측 끝(한 줄) 복원 */
+/* IONE_BK7238_REGFIX66: Today≠Import — 부팅 Import 증분 기준 sanitize, 펌웨어 갱신 시 Today 소실 방지 */
 #define HLW8112_TODAY_SANITY_KWH      50.0f
 #define HLW8112_YESTERDAY_SANITY_KWH  200.0f
 #define HLW8112_MONTH_SANITY_KWH      3000.0f
@@ -158,6 +159,11 @@ static float g_hlw8112_month_b;
 static uint32_t g_hlw8112_daily_ymd;
 static uint8_t g_hlw8112_daily_save_cd;
 static uint16_t g_hlw8112_flash_period_sec;
+/* REGFIX66: 부팅 시점 Import·Today — flash 오염 판별용(Import 절대값과 Today 직접 비교 금지) */
+static float g_hlw8112_import_boot_a;
+static float g_hlw8112_import_boot_b;
+static float g_hlw8112_today_boot_a;
+static float g_hlw8112_today_boot_b;
 
 static void HLW8112_IoneMqttPublishEnergy(void);
 static void HLW8112_LoadDailyEnergy(void);
@@ -208,6 +214,16 @@ static int HLW8112_YmdValid(uint32_t ymd) {
 }
 
 static void HLW8112_SanitizeDailyEnergy(void);
+static void HLW8112_CaptureDailyBootBaseline(void);
+
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+static void HLW8112_CaptureDailyBootBaseline(void) {
+	g_hlw8112_import_boot_a = (float)energy_acc_a.Import;
+	g_hlw8112_import_boot_b = (float)energy_acc_b.Import;
+	g_hlw8112_today_boot_a = g_hlw8112_today_a;
+	g_hlw8112_today_boot_b = g_hlw8112_today_b;
+}
+#endif
 
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 static void HLW8112_SanitizeMonthEnergy(float *kwh) {
@@ -265,6 +281,7 @@ static void HLW8112_LoadDailyEnergy(void) {
 		g_hlw8112_yesterday_a = 0.0f;
 	if (g_hlw8112_yesterday_b < 0.0f || g_hlw8112_yesterday_b > HLW8112_YESTERDAY_SANITY_KWH)
 		g_hlw8112_yesterday_b = 0.0f;
+	HLW8112_CaptureDailyBootBaseline();
 	HLW8112_SanitizeDailyEnergy();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	/* flash TotalConsumption = A채널 월 누적(어제·오늘 제외, 완료 일수 합) */
@@ -313,20 +330,36 @@ static void HLW8112_SaveDailyEnergy(void) {
 	HAL_SetEnergyMeterStatus(&em);
 }
 
-/* Today가 Import 누적보다 크면 flash 오염(Clear 후 429kWh 잔재 등) */
+/* flash 오염: 부팅 이후 Import 증분보다 Today가 비정상적으로 큼(Clear 직후 잔재 등) */
 static void HLW8112_SanitizeDailyEnergy(void) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
 	int dirty = 0;
+	float imp_delta_a = (float)energy_acc_a.Import - g_hlw8112_import_boot_a;
+	float imp_delta_b = (float)energy_acc_b.Import - g_hlw8112_import_boot_b;
+	float today_max_a = g_hlw8112_today_boot_a + imp_delta_a + 0.15f;
+	float today_max_b = g_hlw8112_today_boot_b + imp_delta_b + 0.15f;
 
-	if (g_hlw8112_today_a > 1.0f && g_hlw8112_today_a > (float)energy_acc_a.Import + 0.05f) {
-		g_hlw8112_today_a = (float)energy_acc_a.Import;
+	if (g_hlw8112_today_a > 1.0f && g_hlw8112_today_a > today_max_a) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER,
+			"HLW8112 Today_A flash 오염 복구 %.3f -> %.3f kWh",
+			g_hlw8112_today_a, g_hlw8112_today_boot_a + imp_delta_a);
+		g_hlw8112_today_a = g_hlw8112_today_boot_a + imp_delta_a;
+		if (g_hlw8112_today_a < 0.0f)
+			g_hlw8112_today_a = 0.0f;
 		dirty = 1;
 	}
-	if (g_hlw8112_today_b > 1.0f && g_hlw8112_today_b > (float)energy_acc_b.Import + 0.05f) {
-		g_hlw8112_today_b = (float)energy_acc_b.Import;
+	if (g_hlw8112_today_b > 1.0f && g_hlw8112_today_b > today_max_b) {
+		ADDLOG_WARN(LOG_FEATURE_ENERGYMETER,
+			"HLW8112 Today_B flash 오염 복구 %.3f -> %.3f kWh",
+			g_hlw8112_today_b, g_hlw8112_today_boot_b + imp_delta_b);
+		g_hlw8112_today_b = g_hlw8112_today_boot_b + imp_delta_b;
+		if (g_hlw8112_today_b < 0.0f)
+			g_hlw8112_today_b = 0.0f;
 		dirty = 1;
 	}
 	if (dirty)
 		HLW8112_SaveDailyEnergy();
+#endif
 }
 
 static void HLW8112_ClearDailyEnergyChannel(HLW8112_Channel_t channel) {
@@ -381,6 +414,8 @@ static void HLW8112_CheckDailyRollover(void) {
 	g_hlw8112_yesterday_b = g_hlw8112_today_b;
 	g_hlw8112_today_a = 0.0f;
 	g_hlw8112_today_b = 0.0f;
+	g_hlw8112_today_boot_a = 0.0f;
+	g_hlw8112_today_boot_b = 0.0f;
 	g_hlw8112_daily_ymd = ymd;
 	HLW8112_SaveDailyEnergy();
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
@@ -1128,6 +1163,7 @@ static void HLW8112_ClearEnergyBoth(void) {
 	CHANNEL_Set(HLW8112_Channel_import_B, 0, HLW8112_CH_MQTT_SKIP);
 	HLW8112_ClearDailyEnergyBoth();
 	HLW8112_SaveEnergyFlashBoth();
+	HLW8112_CaptureDailyBootBaseline();
 	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: A·B Import/Export/Today 0 (flash)");
 }
 #endif
@@ -1174,6 +1210,7 @@ void HLW8112_Set_EnergyStat(HLW8112_Channel_t channel, float import, float expor
 		HLW8112_SaveEnergyFlashOne(data,
 			channel == HLW8112_CHANNEL_B ? ENERGY_CHANNEL_B : ENERGY_CHANNEL_A);
 		HLW8112_ClearDailyEnergyChannel(channel);
+		HLW8112_CaptureDailyBootBaseline();
 		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: channel_%c Import/Export/Today=0",
 			channel == HLW8112_CHANNEL_B ? 'b' : 'a');
 		HLW8112_ClearEnergyTryEnd();
@@ -2228,6 +2265,21 @@ void HLW8112_ScaleEnergy(HLW8112_Channel_t channel, uint32_t regValue, int32_t* 
 	}
 }
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+/* REGFIX66: int32 절사 없이 펄스→kWh (저전력·소량 펄스 누적 손실 방지) */
+static double HLW8112_PulseRegToKwh(HLW8112_Channel_t channel, uint32_t regValue) {
+	if (regValue == 0)
+		return 0.0;
+	if ((regValue & 0x00FFFFFF) == 0x00FFFFFF || (regValue & HLW8112_INVALID_REGVALUE))
+		return 0.0;
+	{
+		int32_t rv = HLW8112_24BitTo32Bit(regValue);
+		double scale = channel == HLW8112_CHANNEL_B ? device.ScaleFactor.b.e : device.ScaleFactor.a.e;
+		return (double)rv * scale / 10000000.0;
+	}
+}
+#endif
+
 void HLW8112_ScaleAparentPower(HLW8112_Channel_t channel, uint32_t regValue, int32_t* value){
 	
 	if (regValue == 0) {
@@ -2366,6 +2418,55 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
   	HLW8112_ScalePower(HLW8112_CHANNEL_A, data->pa, &power_a);
   	HLW8112_ScalePower(HLW8112_CHANNEL_B, data->pb, &power_b);
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	{
+		double dkwh_a = HLW8112_PulseRegToKwh(HLW8112_CHANNEL_A, data->ea);
+		double dkwh_b = HLW8112_PulseRegToKwh(HLW8112_CHANNEL_B, data->eb);
+
+		HLW8112_ScalePowerFactor(data->pf, &power_factor);
+		HLW8112_ScaleAparentPower(HLW8112_CHANNEL_A, data->ap, &apparent_power);
+
+		last_update_data.v_rms = voltage;
+		last_update_data.freq = frequency;
+		last_update_data.pf = power_factor;
+		last_update_data.ap = apparent_power;
+		last_update_data.ia_rms = current_a;
+		last_update_data.ib_rms = current_b;
+		last_update_data.pa = power_a;
+		last_update_data.pb = power_b;
+
+		{
+			HLW8112_SaveFlags_t save = HLW8112_SAVE_NONE;
+			if (dkwh_a != 0.0) {
+				ADDLOG_DEBUG(LOG_FEATURE_ENERGYMETER, "EA val %08X dkwh %.9f", data->ea, dkwh_a);
+				if (power_a > 0) {
+					energy_acc_a.Import += dkwh_a;
+					save |= HLW8112_SAVE_A_IMP;
+					HLW8112_AddDailyImportKwh((float)dkwh_a, 0.0f);
+				} else {
+					energy_acc_a.Export += dkwh_a;
+					save |= HLW8112_SAVE_A_EXP;
+				}
+			}
+			if (dkwh_b != 0.0) {
+				if (power_b > 0) {
+					energy_acc_b.Import += dkwh_b;
+					save |= HLW8112_SAVE_B_IMP;
+					HLW8112_AddDailyImportKwh(0.0f, (float)dkwh_b);
+				} else {
+					double exp_b = dkwh_b;
+					if (exp_b < 0.0)
+						exp_b = -exp_b;
+					energy_acc_b.Export += exp_b;
+					save |= HLW8112_SAVE_B_EXP;
+				}
+			}
+			if (save != HLW8112_SAVE_NONE)
+				HLW8112_save_stats(save);
+		}
+		goto hlw8112_scale_channels_done;
+	}
+#endif
 
   	HLW8112_ScaleEnergy(HLW8112_CHANNEL_A, data->ea, &energy_a);
   	HLW8112_ScaleEnergy(HLW8112_CHANNEL_B, data->eb, &energy_b);
@@ -2395,9 +2496,6 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 			double kwh_a = (double)energy_a / 10000000.0;
 			energy_acc_a.Import += kwh_a;
 			save |= HLW8112_SAVE_A_IMP;
-#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-			HLW8112_AddDailyImportKwh((float)kwh_a, 0.0f);
-#endif
 		} else {
 			energy_acc_a.Export += (double)energy_a / 10000000.0;
 			save |= HLW8112_SAVE_A_EXP;
@@ -2408,9 +2506,6 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 			double kwh_b = (double)energy_b / 10000000.0;
 			energy_acc_b.Import += kwh_b;
 			save |= HLW8112_SAVE_B_IMP;
-#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
-			HLW8112_AddDailyImportKwh(0.0f, (float)kwh_b);
-#endif
 		}else {
 			double kwh_b = (double)energy_b;
 			if (kwh_b < 0.0)
@@ -2422,6 +2517,7 @@ static void HLW8112_ScaleAndUpdate(HLW8112_Data_t* data) {
 	if (save != HLW8112_SAVE_NONE) {
 		HLW8112_save_stats(save);
 	}
+hlw8112_scale_channels_done:
     // BL_ProcessUpdate(voltage, current_a, power_a, frequency, energy_a);
 
 	// update
