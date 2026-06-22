@@ -54,6 +54,7 @@ static float g_ione_today_a;
 static float g_ione_today_b;
 static float g_ione_yesterday_a;
 static float g_ione_yesterday_b;
+static float g_ione_import_b;
 static int g_ione_channels_private_done;
 
 extern int OTA_GetProgress(void);
@@ -89,11 +90,14 @@ static void IONE_LoadDailyEnergy(void) {
 	g_ione_yesterday_a = em.YesterdayConsumption;
 	g_ione_today_b = em.ConsumptionHistory[0];
 	g_ione_yesterday_b = em.ConsumptionHistory[1];
+	g_ione_import_b = em.TotalConsumption;
 	IONE_SanitizeDailyEnergy();
+	if (g_ione_import_b < 0.0f || g_ione_import_b > 999999.0f)
+		g_ione_import_b = 0.0f;
 	stored = (uint32_t)em.ConsumptionResetTime;
 	g_ione_daily_ymd = IONE_YmdValid(stored) ? stored : 0u;
-	ADDLOG_INFO(LOG_FEATURE, "Version2: flash Today_A=%.3f Yesterday_A=%.3f ymd=%u",
-		g_ione_today_a, g_ione_yesterday_a, (unsigned)g_ione_daily_ymd);
+	ADDLOG_INFO(LOG_FEATURE, "Version2: flash Today_A=%.3f Yesterday_A=%.3f Import_B=%.3f ymd=%u",
+		g_ione_today_a, g_ione_yesterday_a, g_ione_import_b, (unsigned)g_ione_daily_ymd);
 }
 
 static void IONE_SaveDailyEnergy(void) {
@@ -111,6 +115,7 @@ static void IONE_SaveDailyEnergy(void) {
 	em.YesterdayConsumption = g_ione_yesterday_a;
 	em.ConsumptionHistory[0] = g_ione_today_b;
 	em.ConsumptionHistory[1] = g_ione_yesterday_b;
+	em.TotalConsumption = g_ione_import_b;
 	em.ConsumptionResetTime = (time_t)g_ione_daily_ymd;
 	em.actual_mday = (char)(g_ione_daily_ymd > 0 ? (g_ione_daily_ymd % 100u) : 0);
 	HAL_SetEnergyMeterStatus(&em);
@@ -169,8 +174,10 @@ static void IONE_PJ1103C_AddDailyImportKwh(float kwh_a, float kwh_b) {
 	IONE_PJ1103C_CheckDailyRollover();
 	if (kwh_a > 0.0f)
 		g_ione_today_a += kwh_a;
-	if (kwh_b > 0.0f)
+	if (kwh_b > 0.0f) {
 		g_ione_today_b += kwh_b;
+		g_ione_import_b += kwh_b;
+	}
 	if (kwh_a <= 0.0f && kwh_b <= 0.0f)
 		return;
 	g_ione_daily_save_cd++;
@@ -183,6 +190,22 @@ static void IONE_PJ1103C_AddDailyImportKwh(float kwh_a, float kwh_b) {
 /* autoexec setChannelType이 이미 나눗셈 적용 — GetFinalValue만 사용 (이중 스케일 방지) */
 static float IONE_PJ1103C_GetChannel(int ch) {
 	return CHANNEL_GetFinalValue(ch);
+}
+
+/* PJ-1103C: DP108(Forward B) 미전송 시 ch10=0 — 유효전력 적분·flash로 Energie B 보완 */
+static void IONE_PJ1103C_SyncTotalB(void) {
+	float meter_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
+
+	if (meter_b > g_ione_import_b + 0.0005f) {
+		if (g_ione_import_b + 0.01f < meter_b)
+			ADDLOG_INFO(LOG_FEATURE, "Version2: DP108 Import_B MCU=%.3f (적분 %.3f)",
+				meter_b, g_ione_import_b);
+		g_ione_import_b = meter_b;
+		return;
+	}
+	if (g_ione_import_b <= meter_b + 0.0005f)
+		return;
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_B, g_ione_import_b, CHANNEL_SET_FLAG_SILENT);
 }
 
 /* Version1(HLW8112)와 동일: 1초마다 유효전력(W) 적분 → Today kWh */
@@ -201,6 +224,7 @@ static void IONE_PJ1103C_IntegrateTodayPerSecond(void) {
 	if (pb >= IONE_PJ_PWR_TODAY_MIN_W)
 		kwh_b = pb / 3600000.0f;
 	IONE_PJ1103C_AddDailyImportKwh(kwh_a, kwh_b);
+	IONE_PJ1103C_SyncTotalB();
 }
 
 static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
@@ -216,6 +240,7 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 	snap->current_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_CUR_B);
 	snap->factor_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_A);
 	snap->factor_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_B);
+	IONE_PJ1103C_SyncTotalB();
 	snap->total_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
 	snap->total_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
 
