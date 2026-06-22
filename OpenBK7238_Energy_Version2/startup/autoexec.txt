@@ -1,6 +1,7 @@
 # PJ-1103C — OpenBK7238 Energy Version2 Startup Command (autoexec)
 # Web: Config → Startup Command 또는 LittleFS autoexec.bat
 # GPIO: Config에서 TuyaMCU TX/RX 핀 설정 (PCB 확인)
+# 주의: ch10(Energie B)에 link 107 금지 — DP107=Reverse Energy-A(보통 0)가 B를 지움
 
 startDriver TuyaMCU
 startDriver IONEEnergy
@@ -29,12 +30,26 @@ linkTuyaMCUOutputToChannel 106 val 6
 linkTuyaMCUOutputToChannel 105 val 7
 linkTuyaMCUOutputToChannel 114 val 8
 linkTuyaMCUOutputToChannel 121 val 9
-# DP108=Forward Energy-B (107은 Reverse Energy-A — Energie B에 쓰면 0)
 linkTuyaMCUOutputToChannel 108 val 10
 linkTuyaMCUOutputToChannel 102 raw 11
 linkTuyaMCUOutputToChannel 104 raw 12
 linkTuyaMCUOutputToChannel 115 val 13
+setChannelLabel 1 "Tension"
+setChannelLabel 2 "Frequence"
+setChannelLabel 3 "Puissance A"
+setChannelLabel 4 "Courant A"
+setChannelLabel 5 "PowerFactor A"
+setChannelLabel 6 "Energie A"
+setChannelLabel 7 "Puissance B"
+setChannelLabel 8 "Courant B"
+setChannelLabel 9 "PowerFactor B"
+setChannelLabel 10 "Energie B"
+setChannelLabel 11 "Direction A"
+setChannelLabel 12 "Direction B"
+setChannelLabel 13 "Puissance nette"
 teleperiod 10
+startDriver NTP
+time_setTZ 9
 
 # MQTT Web Config
 # Client Topic: IONE-Energy-Meta-2CH  (→ IONE-Energy-Meta-2CH_XXXXXX 자동)

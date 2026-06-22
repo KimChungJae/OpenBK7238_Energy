@@ -176,7 +176,7 @@ static void IONE_PJ1103C_AddDailyImportKwh(float kwh_a, float kwh_b) {
 		g_ione_today_a += kwh_a;
 	if (kwh_b > 0.0f) {
 		g_ione_today_b += kwh_b;
-		g_ione_import_b += kwh_b;
+		/* import_b는 IntegratePerSecond에서 이미 더함 */
 	}
 	if (kwh_a <= 0.0f && kwh_b <= 0.0f)
 		return;
@@ -192,30 +192,31 @@ static float IONE_PJ1103C_GetChannel(int ch) {
 	return CHANNEL_GetFinalValue(ch);
 }
 
-/* PJ-1103C: DP108(Forward B) 미전송 시 ch10=0 — 유효전력 적분·flash로 Energie B 보완 */
-static void IONE_PJ1103C_SyncTotalB(void) {
+/* PJ-1103C: DP108(Forward B) 미전송·DP107(Reverse A) 오매핑 시 ch10=0 보완 */
+static float IONE_PJ1103C_ResolveTotalBkWh(void) {
 	float meter_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
 
-	if (meter_b > g_ione_import_b + 0.0005f) {
-		if (g_ione_import_b + 0.01f < meter_b)
-			ADDLOG_INFO(LOG_FEATURE, "Version2: DP108 Import_B MCU=%.3f (적분 %.3f)",
-				meter_b, g_ione_import_b);
+	if (meter_b > g_ione_import_b + 0.0005f)
 		g_ione_import_b = meter_b;
-		return;
-	}
-	if (g_ione_import_b <= meter_b + 0.0005f)
-		return;
-	CHANNEL_SetSmart(IONE_PJ_CH_KWH_B, g_ione_import_b, CHANNEL_SET_FLAG_SILENT);
+	if (g_ione_import_b > meter_b + 0.0005f)
+		return g_ione_import_b;
+	return meter_b;
 }
 
-/* Version1(HLW8112)와 동일: 1초마다 유효전력(W) 적분 → Today kWh */
-static void IONE_PJ1103C_IntegrateTodayPerSecond(void) {
+static void IONE_PJ1103C_SyncTotalB(void) {
+	float total_b = IONE_PJ1103C_ResolveTotalBkWh();
+	float meter_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
+
+	if (total_b <= meter_b + 0.0005f)
+		return;
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_B, total_b, CHANNEL_SET_FLAG_SILENT);
+}
+
+/* Version1(HLW8112)와 동일: 1초마다 유효전력(W) 적분 */
+static void IONE_PJ1103C_IntegratePerSecond(void) {
 	float pa, pb;
 	float kwh_a = 0.0f;
 	float kwh_b = 0.0f;
-
-	if (!TIME_IsTimeSynced())
-		return;
 
 	pa = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PWR_A);
 	pb = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PWR_B);
@@ -223,7 +224,22 @@ static void IONE_PJ1103C_IntegrateTodayPerSecond(void) {
 		kwh_a = pa / 3600000.0f;
 	if (pb >= IONE_PJ_PWR_TODAY_MIN_W)
 		kwh_b = pb / 3600000.0f;
-	IONE_PJ1103C_AddDailyImportKwh(kwh_a, kwh_b);
+
+	/* Import_B·Today: B는 NTP 없어도 누적 (DP108/107 오매핑 대비) */
+	if (kwh_b > 0.0f) {
+		g_ione_import_b += kwh_b;
+		g_ione_daily_save_cd++;
+		if (g_ione_daily_save_cd >= 30) {
+			g_ione_daily_save_cd = 0;
+			IONE_SaveDailyEnergy();
+		}
+	}
+
+	if (TIME_IsTimeSynced()) {
+		if (kwh_a > 0.0f || kwh_b > 0.0f)
+			IONE_PJ1103C_AddDailyImportKwh(kwh_a, kwh_b);
+	}
+
 	IONE_PJ1103C_SyncTotalB();
 }
 
@@ -242,7 +258,7 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 	snap->factor_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_B);
 	IONE_PJ1103C_SyncTotalB();
 	snap->total_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
-	snap->total_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
+	snap->total_b = IONE_PJ1103C_ResolveTotalBkWh();
 
 	pa = snap->power_a;
 	pb = snap->power_b;
@@ -316,7 +332,7 @@ void IONEEnergyMqtt_RunEverySecond(void) {
 	int mqtt_up = Main_HasMQTTConnected() ? 1 : 0;
 
 	IONE_PJ1103C_BlockPerChannelMqtt();
-	IONE_PJ1103C_IntegrateTodayPerSecond();
+	IONE_PJ1103C_IntegratePerSecond();
 
 	if (mqtt_up && !g_ione_mqtt_was_up)
 		IONE_TeleTryPublish();
@@ -361,6 +377,9 @@ void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, in
 	hprintf255(request,
 		"<tr><td class='ione-lbl'>Yesterday Total (kWh)</td><td colspan='2'>%.3f</td></tr>",
 		g_ione_yesterday_a + g_ione_yesterday_b);
+	hprintf255(request,
+		"<tr class='ione-sec'><td class='ione-lbl'>Import B (kWh)</td><td colspan='2'>%.3f</td></tr>",
+		g_ione_import_b);
 	if (!TIME_IsTimeSynced())
 		poststr(request,
 			"<tr><td colspan='3' class='ione-lbl' style='color:#e65100'>"
