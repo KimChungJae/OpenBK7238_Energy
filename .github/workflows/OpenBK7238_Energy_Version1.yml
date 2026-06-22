@@ -75,9 +75,10 @@ jobs:
           grep -q 'energy_v1' Makefile
 
       - name: Build OpenBK7238 Energy Version1
+        id: build
         run: |
-          SHA="$(git rev-parse --short=12 HEAD)"
-          APP_VER="${SHA}_energy_v1_spifix67"
+          APP_VER="$(TZ=Asia/Seoul date +%Y%m%d_%H%M)_energy_v1_spifix67"
+          echo "app_ver=${APP_VER}" >> "$GITHUB_OUTPUT"
           make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238_Energy_Version1 VARIANT=energy_v1 OpenBK7238
           mkdir -p artifact
           cp "output/${APP_VER}/OpenBK7238_Energy_Version1_${APP_VER}.rbl" artifact/ 2>/dev/null || cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/OpenBK7238_Energy_Version1_${APP_VER}.rbl
@@ -87,7 +88,7 @@ jobs:
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: OpenBK7238_Energy_Version1
+          name: OpenBK7238_Energy_Version1_${{ steps.build.outputs.app_ver }}
           path: |
             artifact/*.rbl
             artifact/*_UA_*.bin
