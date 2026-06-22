@@ -1,5 +1,18 @@
 # Introduction
 
+> ## IONE BK7238 Energy Meta (KimChungJae fork)
+>
+> GitHub **저장소 이름**은 아직 `OpenBK7231T_App`입니다. Version 구분은 아래에서 확인하세요.
+>
+> | Version | 제품 | 안내 파일 | CI (Actions) | 펌웨어 파일명 |
+> |---------|------|-----------|--------------|----------------|
+> | **Version1** | HLW8112 / PM01_A003 | [OpenBK7238_Energy_Version1.md](OpenBK7238_Energy_Version1.md) | [Energy Version1](https://github.com/KimChungJae/OpenBK7231T_App/actions/workflows/build-bk7238-hlw8112.yml) | `OpenBK7238_Energy_Version1_UA_*.bin` |
+> | **Version2** | PJ-1103C / TuyaMCU | [OpenBK7238_Energy_Version2.md](OpenBK7238_Energy_Version2.md) | [Energy Version2](https://github.com/KimChungJae/OpenBK7231T_App/actions/workflows/build-bk7238-energy-v2.yml) | `OpenBK7238_Energy_Version2_UA_*.bin` |
+>
+> **저장소 이름을 바꾸려면:** GitHub → Repository **Settings** → **General** → Repository name → `OpenBK7238_Energy_Version1` (또는 `OpenBK7238_Energy`)  
+> Version1·Version2 **펌웨어는 같은 repo**의 **Actions → Artifacts**에서 각각 다운로드합니다.  
+> 전체 문서: [docs/IONE_Energy_Versions.md](docs/IONE_Energy_Versions.md)
+
 OpenBK7231T/OpenBeken is a Tasmota/ESPHome alternative for modern Tuya-based modules, offering MQTT and Home Assistant compatibility.
 Although this repository is named `OpenBK7231T_App`, it has evolved into a multi-platform application, supporting builds for multiple chipsets from various vendors, including ESWIN, Transa Semi, Lightning Semi, Espressif, Beken, WinnerMicro, Xradiotech/Allwinner, Realtek, and Bouffalo Lab.
 

@@ -1,6 +1,26 @@
 # IONE OpenBK7238 Energy Meta — Version1 / Version2
 
-동일 Git 저장소(`KimChungJae/OpenBK7231T_App`) 안에서 **제품별 펌웨어 빌드**를 나눕니다.  
+## GitHub에서 Version 찾는 방법
+
+**저장소 목록(Top repositories)에는 Version1/Version2 이름이 따로 안 보입니다.**  
+한 repo(`KimChungJae/OpenBK7231T_App`) 안에 **펌웨어 빌드 두 종류**가 있습니다.
+
+| 어디서 구분? | Version1 | Version2 |
+|--------------|----------|----------|
+| **루트 파일** | [OpenBK7238_Energy_Version1.md](../OpenBK7238_Energy_Version1.md) | [OpenBK7238_Energy_Version2.md](../OpenBK7238_Energy_Version2.md) |
+| **Actions 워크플로** | `Build OpenBK7238 Energy Version1` | `Build OpenBK7238 Energy Version2` |
+| **Artifacts bin** | `OpenBK7238_Energy_Version1_UA_*.bin` | `OpenBK7238_Energy_Version2_UA_*.bin` |
+
+### 저장소 이름 변경 (선택)
+
+GitHub 웹 → **Settings** → **General** → **Repository name**
+
+- 예: `OpenBK7231T_App` → **`OpenBK7238_Energy_Version1`**
+- Version2는 **별도 repo가 아니라** 같은 repo의 **두 번째 CI 빌드**입니다.
+
+---
+
+동일 Git 저장소 안에서 **제품별 펌웨어 빌드**를 나눕니다.  
 **별도 GitHub 포크는 필요 없습니다.**
 
 ## Version1 — OpenBK7238_Energy_Version1
