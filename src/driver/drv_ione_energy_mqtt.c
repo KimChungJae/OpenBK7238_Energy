@@ -103,8 +103,9 @@ static void IONE_PJ1103C_AddTodayKwh(float pa_w, float pb_w) {
 		g_ione_today_b += pb_w / 3600000.0f;
 }
 
-static float IONE_PJ1103C_ScaleChannel(int ch, float div) {
-	return CHANNEL_GetFinalValue(ch) / div;
+/* autoexec setChannelType이 이미 나눗셈 적용 — GetFinalValue만 사용 (이중 스케일 방지) */
+static float IONE_PJ1103C_GetChannel(int ch) {
+	return CHANNEL_GetFinalValue(ch);
 }
 
 static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
@@ -112,16 +113,16 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 
 	memset(snap, 0, sizeof(*snap));
 
-	snap->voltage = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_VOLTAGE, 10.0f);
-	snap->frequency = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_FREQ, 100.0f);
-	snap->power_a = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_PWR_A, 10.0f);
-	snap->power_b = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_PWR_B, 10.0f);
-	snap->current_a = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_CUR_A, 1000.0f);
-	snap->current_b = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_CUR_B, 1000.0f);
-	snap->factor_a = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_PF_A, 100.0f);
-	snap->factor_b = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_PF_B, 100.0f);
-	snap->total_a = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_KWH_A, 100.0f);
-	snap->total_b = IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_KWH_B, 100.0f);
+	snap->voltage = IONE_PJ1103C_GetChannel(IONE_PJ_CH_VOLTAGE);
+	snap->frequency = IONE_PJ1103C_GetChannel(IONE_PJ_CH_FREQ);
+	snap->power_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PWR_A);
+	snap->power_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PWR_B);
+	snap->current_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_CUR_A);
+	snap->current_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_CUR_B);
+	snap->factor_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_A);
+	snap->factor_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_B);
+	snap->total_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
+	snap->total_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
 
 	pa = snap->power_a;
 	pb = snap->power_b;
@@ -149,7 +150,7 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 		}
 	}
 	(void)pfb;
-	(void)IONE_PJ1103C_ScaleChannel(IONE_PJ_CH_NET_PWR, 10.0f);
+	(void)IONE_PJ1103C_GetChannel(IONE_PJ_CH_NET_PWR);
 }
 
 static void IONE_TeleTryPublish(void) {
