@@ -26,7 +26,8 @@ OpenBK7238_Energy/
 | **Actions** | `Build OpenBK7238 Energy Version1` | `Build OpenBK7238 Energy Version2` |
 | **Artifacts** | `OpenBK7238_Energy_Version1_UA_*.bin` | `OpenBK7238_Energy_Version2_UA_*.bin` |
 
-GitHub **Top repositories**에 Version1/Version2 이름을 따로 보이게 하려면 [GITHUB_저장소_Version1_Version2_분리.md](GITHUB_저장소_Version1_Version2_분리.md) 참고.
+GitHub 저장소: **[KimChungJae/OpenBK7238_Energy](https://github.com/KimChungJae/OpenBK7238_Energy)**  
+rename 절차: [GITHUB_저장소_OpenBK7238_Energy_이름변경.md](GITHUB_저장소_OpenBK7238_Energy_이름변경.md)
 
 ---
 
