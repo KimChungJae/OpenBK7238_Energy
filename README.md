@@ -2,15 +2,14 @@
 
 > ## IONE BK7238 Energy Meta (KimChungJae fork)
 >
-> GitHub **저장소 이름**은 아직 `OpenBK7231T_App`입니다. Version 구분은 아래에서 확인하세요.
+> 로컬 경로: **`C:\ST\WORKS\OpenBK7238_Energy`**. GitHub 저장소 이름은 아직 `OpenBK7231T_App`일 수 있습니다. Version1/Version2는 **별도 폴더**로 구분합니다.
 >
-> | Version | 제품 | 안내 파일 | CI (Actions) | 펌웨어 파일명 |
-> |---------|------|-----------|--------------|----------------|
-> | **Version1** | HLW8112 / PM01_A003 | [OpenBK7238_Energy_Version1.md](OpenBK7238_Energy_Version1.md) | [Energy Version1](https://github.com/KimChungJae/OpenBK7231T_App/actions/workflows/build-bk7238-hlw8112.yml) | `OpenBK7238_Energy_Version1_UA_*.bin` |
-> | **Version2** | PJ-1103C / TuyaMCU | [OpenBK7238_Energy_Version2.md](OpenBK7238_Energy_Version2.md) | [Energy Version2](https://github.com/KimChungJae/OpenBK7231T_App/actions/workflows/build-bk7238-energy-v2.yml) | `OpenBK7238_Energy_Version2_UA_*.bin` |
+> | Version | 제품 | 폴더 | CI (Actions) | 펌웨어 파일명 |
+> |---------|------|------|--------------|----------------|
+> | **Version1** | HLW8112 / PM01_A003 | [OpenBK7238_Energy_Version1/](OpenBK7238_Energy_Version1/) | [Energy Version1](https://github.com/KimChungJae/OpenBK7231T_App/actions/workflows/OpenBK7238_Energy_Version1.yml) | `OpenBK7238_Energy_Version1_UA_*.bin` |
+> | **Version2** | PJ-1103C / TuyaMCU | [OpenBK7238_Energy_Version2/](OpenBK7238_Energy_Version2/) | [Energy Version2](https://github.com/KimChungJae/OpenBK7231T_App/actions/workflows/OpenBK7238_Energy_Version2.yml) | `OpenBK7238_Energy_Version2_UA_*.bin` |
 >
-> **저장소 이름을 바꾸려면:** GitHub → Repository **Settings** → **General** → Repository name → `OpenBK7238_Energy_Version1` (또는 `OpenBK7238_Energy`)  
-> Version1·Version2 **펌웨어는 같은 repo**의 **Actions → Artifacts**에서 각각 다운로드합니다.  
+> GitHub 대시보드에 repo 이름까지 나누려면: [docs/GITHUB_저장소_Version1_Version2_분리.md](docs/GITHUB_저장소_Version1_Version2_분리.md)  
 > 전체 문서: [docs/IONE_Energy_Versions.md](docs/IONE_Energy_Versions.md)
 
 OpenBK7231T/OpenBeken is a Tasmota/ESPHome alternative for modern Tuya-based modules, offering MQTT and Home Assistant compatibility.

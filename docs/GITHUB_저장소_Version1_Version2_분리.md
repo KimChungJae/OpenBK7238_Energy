@@ -14,7 +14,7 @@
 로컬 PC (한 번만):
 
 ```powershell
-cd C:\ST\WORKS\OpenBK7231T_App
+cd C:\ST\WORKS\OpenBK7238_Energy
 git remote set-url origin https://github.com/KimChungJae/OpenBK7238_Energy_Version1.git
 git fetch origin
 ```
@@ -30,7 +30,7 @@ git fetch origin
 로컬 PC — 같은 소스 push:
 
 ```powershell
-cd C:\ST\WORKS\OpenBK7231T_App
+cd C:\ST\WORKS\OpenBK7238_Energy
 git remote add version2 https://github.com/KimChungJae/OpenBK7238_Energy_Version2.git
 git push -u version2 main
 ```
@@ -38,7 +38,7 @@ git push -u version2 main
 또는 스크립트:
 
 ```powershell
-cd C:\ST\WORKS\OpenBK7231T_App
+cd C:\ST\WORKS\OpenBK7238_Energy
 .\scripts\setup_github_energy_repos.ps1
 ```
 
@@ -52,6 +52,11 @@ cd C:\ST\WORKS\OpenBK7231T_App
 | `KimChungJae/OpenBK7238_Energy_Version2` | PJ-1103C — Actions: Energy Version2 |
 
 두 repo 모두 **동일 main 브랜치**를 써도 됩니다. CI 워크플로는 각각 Version1/Version2 bin을 빌드합니다.
+
+저장소 **안**에서는 이미 다음 폴더로 제품을 나눕니다:
+
+- `OpenBK7238_Energy_Version1/` — HLW8112 패치 스크립트, PM01 Startup
+- `OpenBK7238_Energy_Version2/` — PJ-1103C Startup (`startup/autoexec.txt`)
 
 ---
 

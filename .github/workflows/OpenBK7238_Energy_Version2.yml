@@ -1,4 +1,5 @@
 # PJ-1103C (BK7238 + TuyaMCU) — OpenBK7238 Energy Version2
+# 제품 전용 폴더: OpenBK7238_Energy_Version2/
 
 name: Build OpenBK7238 Energy Version2
 
@@ -7,7 +8,8 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-bk7238-energy-v2.yml'
+      - '.github/workflows/OpenBK7238_Energy_Version2.yml'
+      - 'OpenBK7238_Energy_Version2/**'
       - 'src/driver/drv_ione_energy_mqtt.c'
       - 'src/driver/drv_ione_energy_mqtt.h'
       - 'src/driver/drv_tuyaMCU.c'
@@ -15,7 +17,6 @@ on:
       - 'src/user_main.c'
       - 'src/obk_config.h'
       - 'Makefile'
-      - 'docs/IONE_Energy_V2_PJ1103C_startup.txt'
 
 env:
   APP_NAME: OpenBK7238_Energy_Version2
@@ -36,6 +37,7 @@ jobs:
           grep -q "OpenBK7238 Energy Version2" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_EnergyMqtt_ApplyTopicMacSuffix" src/user_main.c
           grep -q 'energy_v2' Makefile
+          test -f OpenBK7238_Energy_Version2/startup/autoexec.txt
 
       - name: Build OpenBK7238 Energy Version2
         run: |

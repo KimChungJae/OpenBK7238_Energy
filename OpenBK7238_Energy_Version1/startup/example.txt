@@ -1,0 +1,9 @@
+# PM01_A003 — OpenBK7238 Energy Version1 Startup Command 예시
+# Web: Config → Startup Command
+
+startDriver HLW8112
+teleperiod 10
+
+# MQTT Web Config
+# Client Topic: IONE-Energy-Meta-2CH  (→ IONE-Energy-Meta-2CH_XXXXXX 자동)
+# Broker: iot.ione.kr:1883

@@ -5,13 +5,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+V1_SCRIPTS = ROOT / "OpenBK7238_Energy_Version1" / "scripts"
 SCRIPTS = ["hlw8112_bk7238_spi.py", "hlw8112_bk7238_tune.py"] + [
     f"hlw8112_bk7238_tune{n}.py"
     for n in range(7, 47)
 ]
 
 for name in SCRIPTS:
-    r = subprocess.run([sys.executable, str(ROOT / "scripts" / name)], cwd=ROOT)
+    r = subprocess.run([sys.executable, str(V1_SCRIPTS / name)], cwd=ROOT)
     if r.returncode:
         print(f"FAIL script: {name}", file=sys.stderr)
         sys.exit(r.returncode)

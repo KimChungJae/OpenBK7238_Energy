@@ -1,0 +1,95 @@
+# PM01_A003 (HLW8112 SPI) — OpenBK7238 Energy Version1
+# 제품 전용 폴더: OpenBK7238_Energy_Version1/
+
+name: Build OpenBK7238 Energy Version1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/OpenBK7238_Energy_Version1.yml'
+      - 'OpenBK7238_Energy_Version1/**'
+      - 'src/driver/drv_hlw8112.c'
+      - 'src/driver/drv_hlw8112.h'
+      - 'src/driver/drv_ione_energy_mqtt.c'
+      - 'src/driver/drv_ione_energy_mqtt.h'
+      - 'src/user_main.c'
+      - 'src/driver/drv_main.c'
+      - 'src/new_pins.c'
+      - 'src/httpserver/new_http.c'
+      - 'src/httpserver/http_fns.c'
+      - 'src/obk_config.h'
+      - 'Makefile'
+
+env:
+  APP_NAME: OpenBK7238_Energy_Version1
+  V1_SCRIPTS: OpenBK7238_Energy_Version1/scripts
+
+jobs:
+  build:
+    name: OpenBK7238 Energy Version1
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Source checkout
+        uses: actions/checkout@v4
+
+      - name: Patch HLW8112 SPI for BK7238
+        run: |
+          set -e
+          V1="${{ env.V1_SCRIPTS }}"
+          for f in \
+            hlw8112_bk7238_spi.py \
+            hlw8112_bk7238_tune.py \
+            hlw8112_bk7238_tune7.py hlw8112_bk7238_tune8.py hlw8112_bk7238_tune9.py \
+            hlw8112_bk7238_tune10.py hlw8112_bk7238_tune11.py hlw8112_bk7238_tune12.py \
+            hlw8112_bk7238_tune13.py hlw8112_bk7238_tune14.py hlw8112_bk7238_tune15.py \
+            hlw8112_bk7238_tune16.py hlw8112_bk7238_tune17.py hlw8112_bk7238_tune18.py \
+            hlw8112_bk7238_tune19.py hlw8112_bk7238_tune20.py hlw8112_bk7238_tune21.py \
+            hlw8112_bk7238_tune22.py hlw8112_bk7238_tune23.py hlw8112_bk7238_tune24.py \
+            hlw8112_bk7238_tune25.py hlw8112_bk7238_tune26.py hlw8112_bk7238_tune27.py \
+            hlw8112_bk7238_tune28.py hlw8112_bk7238_tune29.py hlw8112_bk7238_tune30.py \
+            hlw8112_bk7238_tune31.py hlw8112_bk7238_tune32.py hlw8112_bk7238_tune33.py \
+            hlw8112_bk7238_tune34.py hlw8112_bk7238_tune35.py hlw8112_bk7238_tune36.py \
+            hlw8112_bk7238_tune37.py hlw8112_bk7238_tune38.py hlw8112_bk7238_tune39.py \
+            hlw8112_bk7238_tune40.py hlw8112_bk7238_tune41.py hlw8112_bk7238_tune42.py \
+            hlw8112_bk7238_tune43.py hlw8112_bk7238_tune44.py hlw8112_bk7238_tune45.py \
+            hlw8112_bk7238_tune46.py hlw8112_bk7238_tune47.py hlw8112_bk7238_tune48.py \
+            hlw8112_bk7238_tune49.py hlw8112_bk7238_tune50.py hlw8112_bk7238_tune51.py \
+            hlw8112_bk7238_tune52.py hlw8112_bk7238_tune53.py hlw8112_bk7238_tune54.py \
+            hlw8112_bk7238_tune55.py hlw8112_bk7238_tune57.py hlw8112_bk7238_tune58.py \
+            hlw8112_bk7238_tune59.py hlw8112_bk7238_tune60.py hlw8112_bk7238_tune61.py \
+            hlw8112_bk7238_tune62.py hlw8112_bk7238_tune63.py hlw8112_bk7238_tune64.py \
+            hlw8112_bk7238_tune65.py hlw8112_bk7238_tune66.py hlw8112_bk7238_tune67.py
+          do
+            python3 "${V1}/${f}"
+          done
+
+          grep -q "IONE_BK7238_REGFIX45" src/driver/drv_hlw8112.c
+          grep -q "IONE_BK7238_REGFIX67" src/driver/drv_hlw8112.c
+          grep -q "HLW8112_PowerIntKwhPerSec" src/driver/drv_hlw8112.c
+          grep -q "HLW8112_CaptureDailyBootBaseline" src/driver/drv_hlw8112.c
+          grep -q "EnergyTotal_A" src/driver/drv_hlw8112.c
+          grep -q "IONE-Energy-Meta-2CH" src/user_main.c
+          grep -q "IONE_EnergyMqtt_ApplyTopicMacSuffix" src/user_main.c
+          grep -q 'energy_v1' Makefile
+
+      - name: Build OpenBK7238 Energy Version1
+        run: |
+          SHA="$(git rev-parse --short=12 HEAD)"
+          APP_VER="${SHA}_energy_v1_spifix67"
+          make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238_Energy_Version1 VARIANT=energy_v1 OpenBK7238
+          mkdir -p artifact
+          cp "output/${APP_VER}/OpenBK7238_Energy_Version1_${APP_VER}.rbl" artifact/ 2>/dev/null || cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/OpenBK7238_Energy_Version1_${APP_VER}.rbl
+          cp "output/${APP_VER}/OpenBK7238_Energy_Version1_UA_${APP_VER}.bin" artifact/ 2>/dev/null || cp "output/${APP_VER}/OpenBK7238_UA_${APP_VER}.bin" artifact/OpenBK7238_Energy_Version1_UA_${APP_VER}.bin
+          ls -la artifact/
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBK7238_Energy_Version1
+          path: |
+            artifact/*.rbl
+            artifact/*_UA_*.bin
+            artifact/*Energy_Version1*
+          if-no-files-found: error
