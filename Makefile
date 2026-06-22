@@ -29,6 +29,10 @@ else ifeq ($(VARIANT),sensors)
 OBK_VARIANT = 5
 else ifeq ($(VARIANT),hlw8112)
 OBK_VARIANT = 6
+else ifeq ($(VARIANT),energy_v1)
+OBK_VARIANT = 6
+else ifeq ($(VARIANT),energy_v2)
+OBK_VARIANT = 10
 else ifeq ($(VARIANT),battery)
 OBK_VARIANT = 7
 else ifeq ($(VARIANT),btproxy)

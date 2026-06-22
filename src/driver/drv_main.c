@@ -22,6 +22,7 @@
 #include "drv_ds1820_common.h"
 #include "drv_ds3231.h"
 #include "drv_hlw8112.h"
+#include "drv_ione_energy_mqtt.h"
 #include "drv_DCF77.h"
 
 void DRV_MQTTServer_Init();
@@ -77,6 +78,18 @@ static driver_t g_drivers[] = {
 	NULL,                                    // onChannelChanged
 	NULL,                                    // onHassDiscovery
 	false,                                   // loaded
+	},
+#endif
+#if ENABLE_DRIVER_IONE_ENERGY_MQTT
+	{ "IONEEnergy",
+	IONEEnergyMqtt_Init,
+	IONEEnergyMqtt_RunEverySecond,
+	IONEEnergyMqtt_AppendInformationToHTTPIndexPage,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	false,
 	},
 #endif
 #if ENABLE_DRIVER_ROOMBA

@@ -1,0 +1,58 @@
+# PJ-1103C (BK7238 + TuyaMCU) — OpenBK7238 Energy Version2
+
+name: Build OpenBK7238 Energy Version2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-bk7238-energy-v2.yml'
+      - 'src/driver/drv_ione_energy_mqtt.c'
+      - 'src/driver/drv_ione_energy_mqtt.h'
+      - 'src/driver/drv_tuyaMCU.c'
+      - 'src/driver/drv_main.c'
+      - 'src/user_main.c'
+      - 'src/obk_config.h'
+      - 'Makefile'
+      - 'docs/IONE_Energy_V2_PJ1103C_startup.txt'
+
+env:
+  APP_NAME: OpenBK7238_Energy_Version2
+
+jobs:
+  build:
+    name: OpenBK7238 Energy Version2
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Source checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Version2 markers
+        run: |
+          grep -q "OBK_VARIANT_IONE_ENERGY_V2" src/obk_config.h
+          grep -q "ENABLE_DRIVER_IONE_ENERGY_MQTT" src/obk_config.h
+          grep -q "IONE_EnergyMqtt_PublishTeleSensor" src/driver/drv_ione_energy_mqtt.c
+          grep -q "OpenBK7238 Energy Version2" src/driver/drv_ione_energy_mqtt.c
+          grep -q "IONE_EnergyMqtt_ApplyTopicMacSuffix" src/user_main.c
+          grep -q 'energy_v2' Makefile
+
+      - name: Build OpenBK7238 Energy Version2
+        run: |
+          SHA="$(git rev-parse --short=12 HEAD)"
+          APP_VER="${SHA}_energy_v2"
+          make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238_Energy_Version2 VARIANT=energy_v2 OpenBK7238
+          mkdir -p artifact
+          cp "output/${APP_VER}/OpenBK7238_Energy_Version2_${APP_VER}.rbl" artifact/ 2>/dev/null || cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/OpenBK7238_Energy_Version2_${APP_VER}.rbl
+          cp "output/${APP_VER}/OpenBK7238_Energy_Version2_UA_${APP_VER}.bin" artifact/ 2>/dev/null || cp "output/${APP_VER}/OpenBK7238_UA_${APP_VER}.bin" artifact/OpenBK7238_Energy_Version2_UA_${APP_VER}.bin
+          ls -la artifact/
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBK7238_Energy_Version2
+          path: |
+            artifact/*.rbl
+            artifact/*_UA_*.bin
+            artifact/*Energy_Version2*
+          if-no-files-found: error

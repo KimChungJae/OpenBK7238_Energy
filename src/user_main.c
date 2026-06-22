@@ -12,6 +12,9 @@
 #include "driver/drv_public.h"
 #include "driver/drv_bl_shared.h"
 #include "driver/drv_hlw8112.h"
+#if (OBK_VARIANT == OBK_VARIANT_HLW8112 || OBK_VARIANT == OBK_VARIANT_IONE_ENERGY_V2)
+#include "driver/drv_ione_energy_mqtt.h"
+#endif
 //#include "ir/ir_local.h"
 
 #include "driver/drv_deviceclock.h"
@@ -1483,56 +1486,8 @@ void Main_ForceUnsafeInit() {
 	Main_Init_AfterDelay_Unsafe(false);
 	bSafeMode = 0;
 }
-#if (OBK_VARIANT == OBK_VARIANT_HLW8112)
-/* IONE_BK7238_REGFIX53/54: Web Client Topic 베이스 + MAC 하위 3바이트(6hex) 자동 부여
- * 예) IONE-Energy-Meta-2CH → IONE-Energy-Meta-2CH_132D65 (MAC …:13:2D:65)
- * 부팅: CFG_InitAndLoad() 직후(Main_Init_Before_Delay) — MQTT 연결·tele/SENSOR 발행 전 */
-static int IONE_TopicBaseMatches(const char *cur, const char *base)
-{
-	size_t blen = strlen(base);
-
-	if (strcmp(cur, base) == 0)
-		return 1;
-	if (strncmp(cur, base, blen) != 0)
-		return 0;
-	if (cur[blen] == '\0')
-		return 1;
-	/* 이미 _132D65 형태 접미사가 붙은 경우도 동일 베이스로 처리 */
-	return (cur[blen] == '_');
-}
-
-static void IONE_ApplyMqttTopicMacSuffix(void)
-{
-	static const char *bases[] = {
-		"IONE-Energy-Meta-2CH",
-		"IONE-Energy-Meta-1CH",
-		"IONE-Energy-Meta_2CH",
-		"IONE-Energy-Meta_1CH",
-		"Energy_Meta_2CH",
-		"Energy_Meta_1CH",
-	};
-	unsigned char mac[6];
-	char expected[CGF_MQTT_CLIENT_ID_SIZE];
-	const char *cur = CFG_GetMQTTClientId();
-	size_t i;
-
-	WiFI_GetMacAddress((char *)mac);
-
-	for (i = 0; i < sizeof(bases) / sizeof(bases[0]); i++) {
-		const char *base = bases[i];
-
-		if (!IONE_TopicBaseMatches(cur, base))
-			continue;
-
-		snprintf(expected, sizeof(expected), "%s_%02X%02X%02X",
-			base, mac[3], mac[4], mac[5]);
-		if (strcmp(cur, expected) != 0) {
-			ADDLOG_INFO(LOG_FEATURE_MAIN, "MQTT Client Topic: %s -> %s", cur, expected);
-			CFG_SetMQTTClientId(expected);
-		}
-		return;
-	}
-}
+#if (OBK_VARIANT == OBK_VARIANT_HLW8112 || OBK_VARIANT == OBK_VARIANT_IONE_ENERGY_V2)
+/* Version1/2: Web Client Topic + MAC 접미사 — drv_ione_energy_mqtt.c */
 #endif
 
 //////////////////////////////////////////////////////
@@ -1563,8 +1518,8 @@ void Main_Init_Before_Delay()
 	}
 	CFG_InitAndLoad();
 
-#if (OBK_VARIANT == OBK_VARIANT_HLW8112)
-	IONE_ApplyMqttTopicMacSuffix();
+#if (OBK_VARIANT == OBK_VARIANT_HLW8112 || OBK_VARIANT == OBK_VARIANT_IONE_ENERGY_V2)
+	IONE_EnergyMqtt_ApplyTopicMacSuffix();
 #endif
 
 #if ENABLE_LITTLEFS

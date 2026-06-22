@@ -1,0 +1,40 @@
+# PJ-1103C — OpenBK7238 Energy Version2 Startup Command (autoexec)
+# Web: Config → Startup Command 또는 LittleFS autoexec.bat
+# GPIO: Config에서 TuyaMCU TX/RX 핀 설정 (PCB 확인)
+
+startDriver TuyaMCU
+startDriver IONEEnergy
+tuyaMcu_setBaudRate 9600
+tuyaMcu_defWiFiState 4
+addRepeatingEvent 10 -1 uartSendHex 55AA0008000007
+setChannelType 1 Voltage_div10
+setChannelType 2 Frequency_div100
+setChannelType 3 Power_div10
+setChannelType 4 Current_div1000
+setChannelType 5 PowerFactor_div100
+setChannelType 6 EnergyTotal_kWh_div100
+setChannelType 7 Power_div10
+setChannelType 8 Current_div1000
+setChannelType 9 PowerFactor_div100
+setChannelType 10 EnergyTotal_kWh_div100
+setChannelType 11 ReadOnly
+setChannelType 12 ReadOnly
+setChannelType 13 Power_div10
+linkTuyaMCUOutputToChannel 112 val 1
+linkTuyaMCUOutputToChannel 111 val 2
+linkTuyaMCUOutputToChannel 101 val 3
+linkTuyaMCUOutputToChannel 113 val 4
+linkTuyaMCUOutputToChannel 110 val 5
+linkTuyaMCUOutputToChannel 106 val 6
+linkTuyaMCUOutputToChannel 105 val 7
+linkTuyaMCUOutputToChannel 114 val 8
+linkTuyaMCUOutputToChannel 121 val 9
+linkTuyaMCUOutputToChannel 107 val 10
+linkTuyaMCUOutputToChannel 102 raw 11
+linkTuyaMCUOutputToChannel 104 raw 12
+linkTuyaMCUOutputToChannel 115 val 13
+teleperiod 10
+
+# MQTT Web Config
+# Client Topic: IONE-Energy-Meta-2CH  (→ IONE-Energy-Meta-2CH_XXXXXX 자동)
+# Broker: iot.ione.kr:1883

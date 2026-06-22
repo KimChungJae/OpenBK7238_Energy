@@ -1,6 +1,6 @@
-# PM01_A003 (T1-U-HL / BK7238 + HLW8112 SPI) 전용 빌드
+# PM01_A003 (HLW8112 SPI) — OpenBK7238 Energy Version1
 
-name: Build BK7238 HLW8112
+name: Build OpenBK7238 Energy Version1
 
 
 
@@ -77,6 +77,8 @@ on:
       - 'scripts/hlw8112_bk7238_tune66.py'
       - 'scripts/hlw8112_bk7238_tune67.py'
       - 'src/driver/drv_hlw8112.c'
+      - 'src/driver/drv_ione_energy_mqtt.c'
+      - 'src/driver/drv_ione_energy_mqtt.h'
       - 'src/user_main.c'
       - 'src/driver/drv_main.c'
       - 'src/new_pins.c'
@@ -86,7 +88,7 @@ on:
 
 env:
 
-  APP_NAME: OpenBK7231T_App
+  APP_NAME: OpenBK7238_Energy_Version1
 
 
 
@@ -94,7 +96,7 @@ jobs:
 
   build:
 
-    name: OpenBK7238 hlw8112
+    name: OpenBK7238 Energy Version1
 
     runs-on: ubuntu-22.04
 
@@ -240,7 +242,7 @@ jobs:
           grep -q 'id=\\"energy\\"' src/httpserver/http_fns.c
           grep -q "index?energy=1" src/httpserver/http_fns.c
           grep -q "IONE-Energy-Meta-2CH" src/user_main.c
-          grep -q "IONE_ApplyMqttTopicMacSuffix" src/user_main.c
+          grep -q "IONE_EnergyMqtt_ApplyTopicMacSuffix" src/user_main.c
           grep -q "PHASE verify fail" src/driver/drv_hlw8112.c
           grep -q 'CMD_RegisterCommand("HLW8112_phase"' src/driver/drv_hlw8112.c
           grep -q 'CMD_RegisterCommand("HLW8112_pagain"' src/driver/drv_hlw8112.c
@@ -262,23 +264,22 @@ jobs:
 
 
 
-      - name: Build OpenBK7238 hlw8112
+      - name: Build OpenBK7238 Energy Version1
 
         run: |
 
           SHA="$(git rev-parse --short=12 HEAD)"
 
-          APP_VER="${SHA}_hlw8112_spifix67"
+          APP_VER="${SHA}_energy_v1_spifix67"
 
-          make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238 VARIANT=hlw8112 OpenBK7238
+          make APP_VERSION="${APP_VER}" APP_NAME=OpenBK7238_Energy_Version1 VARIANT=energy_v1 OpenBK7238
 
           mkdir -p artifact
 
-          # Artifact: UART(UA) + OTA(rbl) 2개만
-          cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/
-          cp "output/${APP_VER}/OpenBK7238_UA_${APP_VER}.bin" artifact/
-          test -f "artifact/OpenBK7238_${APP_VER}.rbl"
-          test -f "artifact/OpenBK7238_UA_${APP_VER}.bin"
+          cp "output/${APP_VER}/OpenBK7238_Energy_Version1_${APP_VER}.rbl" artifact/ 2>/dev/null || cp "output/${APP_VER}/OpenBK7238_${APP_VER}.rbl" artifact/OpenBK7238_Energy_Version1_${APP_VER}.rbl
+
+          cp "output/${APP_VER}/OpenBK7238_Energy_Version1_UA_${APP_VER}.bin" artifact/ 2>/dev/null || cp "output/${APP_VER}/OpenBK7238_UA_${APP_VER}.bin" artifact/OpenBK7238_Energy_Version1_UA_${APP_VER}.bin
+
           ls -la artifact/
 
 
@@ -289,13 +290,14 @@ jobs:
 
         with:
 
-          name: OpenBK7238_hlw8112_spifix67
+          name: OpenBK7238_Energy_Version1
 
           path: |
 
             artifact/*.rbl
 
             artifact/*_UA_*.bin
+            artifact/*Energy_Version1*
 
           if-no-files-found: error
 
