@@ -10,6 +10,7 @@
 #include "../new_pins.h"
 #include "../new_cfg.h"
 #include "../logging/logging.h"
+#include "../libraries/obktime/obktime.h"
 #include "../mqtt/new_mqtt.h"
 #include "../hal/hal_wifi.h"
 #include "../driver/drv_deviceclock.h"

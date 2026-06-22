@@ -4,37 +4,34 @@ from pathlib import Path
 import sys
 
 HLW = Path("src/driver/drv_hlw8112.c")
-MAIN = Path("src/user_main.c")
+IONE = Path("src/driver/drv_ione_energy_mqtt.c")
 
-if not HLW.is_file() or not MAIN.is_file():
+if not HLW.is_file() or not IONE.is_file():
     sys.exit("ERROR: source files not found")
 
 hlw = HLW.read_text(encoding="utf-8")
-main = MAIN.read_text(encoding="utf-8")
+ione = IONE.read_text(encoding="utf-8")
 
-if "IONE_BK7238_REGFIX53" in hlw and "IONE_ApplyMqttTopicMacSuffix" in main:
+if "IONE_BK7238_REGFIX53" in hlw and "IONE_EnergyMqtt_ApplyTopicMacSuffix" in ione:
     print("Patch v53 already in tree")
     sys.exit(0)
 
 if "IONE_BK7238_REGFIX52" not in hlw:
     sys.exit("ERROR: apply spifix52 first")
 
-need_main = [
-    "IONE_BK7238_REGFIX53",
-    "IONE_ApplyMqttTopicMacSuffix",
+need_ione = [
     "IONE-Energy-Meta_2CH",
+    "IONE-Energy-Meta-2CH",
     "_%02X%02X%02X",
     "mac[3], mac[4], mac[5]",
+    "IONE_EnergyMqtt_ApplyTopicMacSuffix",
+    "IONE_TopicBaseMatches",
 ]
-for s in need_main:
-    if s not in main:
-        sys.exit(f"ERROR: user_main.c missing {s!r}")
+for s in need_ione:
+    if s not in ione:
+        sys.exit(f"ERROR: drv_ione_energy_mqtt.c missing {s!r}")
 
-need_hlw = [
-    "IONE_BK7238_REGFIX53",
-]
-for s in need_hlw:
-    if s not in hlw:
-        sys.exit(f"ERROR: drv_hlw8112.c missing {s!r}")
+if "IONE_BK7238_REGFIX53" not in hlw:
+    sys.exit("ERROR: drv_hlw8112.c missing 'IONE_BK7238_REGFIX53'")
 
 print("HLW8112 regfix v53 OK (MQTT topic MAC suffix)")

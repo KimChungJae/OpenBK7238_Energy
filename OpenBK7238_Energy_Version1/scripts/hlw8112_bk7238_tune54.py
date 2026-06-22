@@ -4,15 +4,15 @@ from pathlib import Path
 import sys
 
 HLW = Path("src/driver/drv_hlw8112.c")
-MAIN = Path("src/user_main.c")
+IONE = Path("src/driver/drv_ione_energy_mqtt.c")
 
-if not HLW.is_file() or not MAIN.is_file():
+if not HLW.is_file() or not IONE.is_file():
     sys.exit("ERROR: source files not found")
 
 hlw = HLW.read_text(encoding="utf-8")
-main = MAIN.read_text(encoding="utf-8")
+ione = IONE.read_text(encoding="utf-8")
 
-if "IONE_BK7238_REGFIX54" in hlw and "IONE-Energy-Meta-2CH" in main:
+if "IONE_BK7238_REGFIX54" in hlw and "IONE-Energy-Meta-2CH" in ione:
     print("Patch v54 already in tree")
     sys.exit(0)
 
@@ -23,10 +23,10 @@ need = [
     "IONE_BK7238_REGFIX54",
     "IONE-Energy-Meta-2CH",
     "IONE_TopicBaseMatches",
-    "IONE_ApplyMqttTopicMacSuffix",
+    "IONE_EnergyMqtt_ApplyTopicMacSuffix",
 ]
 for s in need:
-    if s not in main and s not in hlw:
+    if s not in ione and s not in hlw:
         sys.exit(f"ERROR: missing {s!r}")
 
 print("HLW8112 regfix v54 OK (MQTT topic hyphen base)")
