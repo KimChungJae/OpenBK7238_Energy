@@ -31,6 +31,9 @@ typedef struct {
 /* Web Client Topic 베이스 + MAC 하위 3바이트 (Version1/2 공통) */
 void IONE_EnergyMqtt_ApplyTopicMacSuffix(void);
 
+/* Tasmota tele/STATE — 보일러(Tasmota MqttShowState)와 동일 필드 */
+void IONE_EnergyMqtt_PublishTeleState(void);
+
 #if ENABLE_DRIVER_IONE_ENERGY_MQTT
 void IONEEnergyMqtt_Init(void);
 void IONEEnergyMqtt_RunEverySecond(void);

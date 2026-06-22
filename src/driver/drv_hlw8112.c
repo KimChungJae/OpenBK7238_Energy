@@ -29,6 +29,9 @@
 
 #include "drv_public.h"
 #include "drv_spi.h"
+#if ENABLE_IONE_ENERGY_MQTT
+#include "drv_ione_energy_mqtt.h"
+#endif
 
 
 static const uint32_t RMS_I_RESOLUTION  = 8388608 ; // 1 << 23;
@@ -2388,17 +2391,22 @@ static void HLW8112_IoneMqttPublishEnergy(void) {
 		"\"ApparentPower_A\":%.1f,\"ReactivePower_A\":%.1f,"
 		"\"Factor_A\":%.2f,\"Voltage\":%.1f,"
 		"\"Current_A\":%.3f,\"Current_B\":%.3f,"
-		"\"Frequency\":%.1f}}",
+		"\"Frequency\":%.1f},"
+		"\"Hostname\":\"%s\",\"IPAddress\":\"%s\"}",
 		timeStr, total_a, total_b, et_a, et_b, export_a, export_b,
 		g_hlw8112_yesterday_a, g_hlw8112_yesterday_b,
 		g_hlw8112_today_a + g_hlw8112_today_b,
 		g_hlw8112_yesterday_a + g_hlw8112_yesterday_b,
 		g_hlw8112_today_a, g_hlw8112_today_b,
 		p_a, p_b,
-		s, reactive, pf, v, cur_a, cur_b, freq);
+		s, reactive, pf, v, cur_a, cur_b, freq,
+		CFG_GetShortDeviceName(), HAL_GetMyIPString());
 
 	mqttTopic = CFG_GetMQTTClientId();
 	snprintf(topic, sizeof(topic), "tele/%s", mqttTopic);
+#if ENABLE_IONE_ENERGY_MQTT
+	IONE_EnergyMqtt_PublishTeleState();
+#endif
 	MQTT_Publish(topic, "SENSOR", payload, 0);
 	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "tele/%s/SENSOR A=%.0fW B=%.0fW Today_A=%.3f (period %u s)",
 		mqttTopic, p_a, p_b, g_hlw8112_today_a, (unsigned)g_hlw8112_teleperiod_sec);

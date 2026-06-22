@@ -16,6 +16,7 @@
 #include "../hal/hal_flashVars.h"
 #include "../driver/drv_deviceclock.h"
 #include "../httpserver/new_http.h"
+#include "../cmnds/cmd_public.h"
 #include "drv_public.h"
 #include "drv_ione_energy_mqtt.h"
 #include <math.h>
@@ -292,6 +293,7 @@ static void IONE_TeleTryPublish(void) {
 
 	if (!Main_HasMQTTConnected())
 		return;
+	IONE_EnergyMqtt_PublishTeleState();
 	IONE_PJ1103C_ReadSnapshot(&snap);
 	IONE_EnergyMqtt_PublishTeleSensor(&snap);
 }
@@ -309,7 +311,7 @@ static commandResult_t CMD_IONE_Teleperiod(const void *context, const char *cmd,
 		sec = 3600;
 	g_ione_teleperiod_sec = (uint16_t)sec;
 	g_ione_tele_tick = g_ione_teleperiod_sec;
-	ADDLOG_INFO(LOG_FEATURE, "teleperiod: tele/%s/SENSOR every %u s",
+	ADDLOG_INFO(LOG_FEATURE, "teleperiod: tele/%s/SENSOR+STATE every %u s",
 		CFG_GetMQTTClientId(), (unsigned)g_ione_teleperiod_sec);
 	IONE_TeleTryPublish();
 	return CMD_RES_OK;
@@ -354,7 +356,7 @@ void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, in
 		poststr(request, "<h4 style=\"margin:8px 0 4px 0;color:#1565c0\">OpenBK7238 Energy Version2 (PJ-1103C TuyaMCU)</h4>");
 		return;
 	}
-	hprintf255(request, "<p>Energy Version2 · tele/%s/SENSOR · %u s</p>",
+	hprintf255(request, "<p>Energy Version2 · tele/%s/SENSOR+STATE · %u s</p>",
 		CFG_GetMQTTClientId(), (unsigned)g_ione_teleperiod_sec);
 	poststr(request,
 		"<style>"
@@ -432,16 +434,92 @@ void IONE_EnergyMqtt_ApplyTopicMacSuffix(void) {
 	}
 }
 
+/* Tasmota-15.2 support_tasmota.ino MqttShowState()와 동일 구조 */
+static void IONE_FormatUptimeStr(int total_seconds, char *out, int outLen) {
+	int days = total_seconds / 86400;
+	int hours = (total_seconds / 3600) % 24;
+	int minutes = (total_seconds / 60) % 60;
+	int seconds = total_seconds % 60;
+
+	snprintf(out, outLen, "%dT%02d:%02d:%02d", days, hours, minutes, seconds);
+}
+
+void IONE_EnergyMqtt_PublishTeleState(void) {
+	char payload[960];
+	char topic[64];
+	char uptime[20];
+	char sleepMode[12];
+	const char *timeStr;
+	const char *mqttTopic;
+	const char *hostname;
+	const char *ipStr;
+	const char *ssid;
+	int heapKb;
+	int sleepVal;
+	int wifiSignal;
+	int wifiRssi;
+	int len;
+
+	if (!Main_HasMQTTConnected())
+		return;
+
+	timeStr = TS2STR(TIME_GetCurrentTime(), TIME_FORMAT_ISO_8601);
+	IONE_FormatUptimeStr(g_secondsElapsed, uptime, sizeof(uptime));
+	heapKb = xPortGetFreeHeapSize() / 1024;
+	if (g_powersave) {
+		strcpy(sleepMode, "Dynamic");
+		sleepVal = 50;
+	} else {
+		strcpy(sleepMode, "None");
+		sleepVal = 0;
+	}
+	wifiSignal = HAL_GetWifiStrength();
+	wifiRssi = (wifiSignal + 100) * 2;
+	if (wifiRssi < 0)
+		wifiRssi = 0;
+	if (wifiRssi > 100)
+		wifiRssi = 100;
+	hostname = CFG_GetShortDeviceName();
+	ipStr = HAL_GetMyIPString();
+	ssid = CFG_GetWiFiSSID();
+
+	len = snprintf(payload, sizeof(payload),
+		"{\"Time\":\"%s\",\"Uptime\":\"%s\",\"UptimeSec\":%d,\"Heap\":%d,"
+		"\"SleepMode\":\"%s\",\"Sleep\":%d,\"LoadAvg\":%d,\"MqttCount\":%d,"
+		"\"POWER\":\"ON\","
+		"\"Wifi\":{\"AP\":1,\"SSId\":\"%s\",\"BSSId\":\"%s\",\"Channel\":%u,"
+		"\"Mode\":\"11n\",\"RSSI\":%d,\"Signal\":%d,\"LinkCount\":%d,"
+		"\"Downtime\":\"0T00:00:04\"},"
+		"\"Hostname\":\"%s\",\"IPAddress\":\"%s\"}",
+		timeStr, uptime, g_secondsElapsed, heapKb,
+		sleepMode, sleepVal, 19, MQTT_GetConnectEvents(),
+		ssid, g_wifi_bssid, (unsigned)g_wifi_channel,
+		wifiRssi, wifiSignal, 1,
+		hostname, ipStr);
+	if (len <= 0 || len >= (int)sizeof(payload))
+		return;
+
+	mqttTopic = CFG_GetMQTTClientId();
+	snprintf(topic, sizeof(topic), "tele/%s", mqttTopic);
+	MQTT_Publish(topic, "STATE", payload, 0);
+	ADDLOG_INFO(LOG_FEATURE, "tele/%s/STATE UptimeSec=%d Heap=%d",
+		mqttTopic, g_secondsElapsed, heapKb);
+}
+
 void IONE_EnergyMqtt_PublishTeleSensor(const ione_energy_mqtt_snapshot_t *snap) {
-	char payload[800];
+	char payload[900];
 	char topic[64];
 	const char *timeStr;
 	const char *mqttTopic;
+	const char *hostname;
+	const char *ipStr;
 
 	if (!snap || !Main_HasMQTTConnected())
 		return;
 
 	timeStr = TS2STR(TIME_GetCurrentTime(), TIME_FORMAT_ISO_8601);
+	hostname = CFG_GetShortDeviceName();
+	ipStr = HAL_GetMyIPString();
 	snprintf(payload, sizeof(payload),
 		"{\"Time\":\"%s\",\"ENERGY\":{"
 		"\"Total_A\":%.3f,\"Total_B\":%.3f,"
@@ -454,7 +532,8 @@ void IONE_EnergyMqtt_PublishTeleSensor(const ione_energy_mqtt_snapshot_t *snap) 
 		"\"ApparentPower_A\":%.1f,\"ReactivePower_A\":%.1f,"
 		"\"Factor_A\":%.2f,\"Voltage\":%.1f,"
 		"\"Current_A\":%.3f,\"Current_B\":%.3f,"
-		"\"Frequency\":%.1f}}",
+		"\"Frequency\":%.1f},"
+		"\"Hostname\":\"%s\",\"IPAddress\":\"%s\"}",
 		timeStr,
 		snap->total_a, snap->total_b,
 		snap->energy_total_a, snap->energy_total_b,
@@ -467,7 +546,8 @@ void IONE_EnergyMqtt_PublishTeleSensor(const ione_energy_mqtt_snapshot_t *snap) 
 		snap->apparent_a, snap->reactive_a,
 		snap->factor_a, snap->voltage,
 		snap->current_a, snap->current_b,
-		snap->frequency);
+		snap->frequency,
+		hostname, ipStr);
 
 	mqttTopic = CFG_GetMQTTClientId();
 	snprintf(topic, sizeof(topic), "tele/%s", mqttTopic);
