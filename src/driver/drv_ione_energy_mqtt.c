@@ -13,6 +13,7 @@
 #include "../libraries/obktime/obktime.h"
 #include "../mqtt/new_mqtt.h"
 #include "../hal/hal_wifi.h"
+#include "../hal/hal_flashVars.h"
 #include "../driver/drv_deviceclock.h"
 #include "../httpserver/new_http.h"
 #include "drv_public.h"
@@ -41,16 +42,79 @@ extern int g_doNotPublishChannels;
 
 #define IONE_PJ_TELE_DEFAULT_SEC  10
 #define IONE_PJ_PWR_TODAY_MIN_W    5.0f
+#define IONE_PJ_TODAY_SANITY_KWH   500.0f
+#define IONE_PJ_YESTERDAY_SANITY_KWH 500.0f
 
 static uint16_t g_ione_teleperiod_sec = IONE_PJ_TELE_DEFAULT_SEC;
 static uint16_t g_ione_tele_tick;
 static uint8_t g_ione_mqtt_was_up;
-static int g_ione_last_ymd;
+static uint32_t g_ione_daily_ymd;
+static uint8_t g_ione_daily_save_cd;
 static float g_ione_today_a;
 static float g_ione_today_b;
 static float g_ione_yesterday_a;
 static float g_ione_yesterday_b;
 static int g_ione_channels_private_done;
+
+extern int OTA_GetProgress(void);
+
+static int IONE_YmdValid(uint32_t ymd) {
+	uint16_t y = (uint16_t)(ymd / 10000u);
+	uint8_t m = (uint8_t)((ymd / 100u) % 100u);
+	uint8_t d = (uint8_t)(ymd % 100u);
+
+	if (ymd < 20000101u)
+		return 0;
+	return isValidDate(y, m, d) ? 1 : 0;
+}
+
+static void IONE_SanitizeDailyEnergy(void) {
+	if (g_ione_today_a < 0.0f || g_ione_today_a > IONE_PJ_TODAY_SANITY_KWH)
+		g_ione_today_a = 0.0f;
+	if (g_ione_today_b < 0.0f || g_ione_today_b > IONE_PJ_TODAY_SANITY_KWH)
+		g_ione_today_b = 0.0f;
+	if (g_ione_yesterday_a < 0.0f || g_ione_yesterday_a > IONE_PJ_YESTERDAY_SANITY_KWH)
+		g_ione_yesterday_a = 0.0f;
+	if (g_ione_yesterday_b < 0.0f || g_ione_yesterday_b > IONE_PJ_YESTERDAY_SANITY_KWH)
+		g_ione_yesterday_b = 0.0f;
+}
+
+static void IONE_LoadDailyEnergy(void) {
+	ENERGY_METERING_DATA em;
+	uint32_t stored;
+
+	memset(&em, 0, sizeof(em));
+	HAL_GetEnergyMeterStatus(&em);
+	g_ione_today_a = em.TodayConsumpion;
+	g_ione_yesterday_a = em.YesterdayConsumption;
+	g_ione_today_b = em.ConsumptionHistory[0];
+	g_ione_yesterday_b = em.ConsumptionHistory[1];
+	IONE_SanitizeDailyEnergy();
+	stored = (uint32_t)em.ConsumptionResetTime;
+	g_ione_daily_ymd = IONE_YmdValid(stored) ? stored : 0u;
+	ADDLOG_INFO(LOG_FEATURE, "Version2: flash Today_A=%.3f Yesterday_A=%.3f ymd=%u",
+		g_ione_today_a, g_ione_yesterday_a, (unsigned)g_ione_daily_ymd);
+}
+
+static void IONE_SaveDailyEnergy(void) {
+	ENERGY_METERING_DATA em;
+	int pg;
+
+	pg = OTA_GetProgress();
+	if (pg != -1) {
+		ADDLOG_WARN(LOG_FEATURE, "Version2: OTA 중 flash 저장 생략 pg=%d", pg);
+		return;
+	}
+	memset(&em, 0, sizeof(em));
+	HAL_GetEnergyMeterStatus(&em);
+	em.TodayConsumpion = g_ione_today_a;
+	em.YesterdayConsumption = g_ione_yesterday_a;
+	em.ConsumptionHistory[0] = g_ione_today_b;
+	em.ConsumptionHistory[1] = g_ione_yesterday_b;
+	em.ConsumptionResetTime = (time_t)g_ione_daily_ymd;
+	em.actual_mday = (char)(g_ione_daily_ymd > 0 ? (g_ione_daily_ymd % 100u) : 0);
+	HAL_SetEnergyMeterStatus(&em);
+}
 
 static int IONE_LocalYmd(void) {
 	TimeComponents tc;
@@ -78,34 +142,65 @@ static void IONE_PJ1103C_BlockPerChannelMqtt(void) {
 }
 
 static void IONE_PJ1103C_CheckDailyRollover(void) {
-	int ymd = IONE_LocalYmd();
-	if (ymd < 0)
+	uint32_t ymd;
+
+	if (!TIME_IsTimeSynced())
 		return;
-	if (g_ione_last_ymd < 0) {
-		g_ione_last_ymd = ymd;
+	ymd = (uint32_t)IONE_LocalYmd();
+	if (ymd == 0 || !IONE_YmdValid(ymd))
+		return;
+	if (g_ione_daily_ymd == 0) {
+		g_ione_daily_ymd = ymd;
 		return;
 	}
-	if (ymd == g_ione_last_ymd)
+	if (g_ione_daily_ymd == ymd)
 		return;
 	g_ione_yesterday_a = g_ione_today_a;
 	g_ione_yesterday_b = g_ione_today_b;
 	g_ione_today_a = 0.0f;
 	g_ione_today_b = 0.0f;
-	g_ione_last_ymd = ymd;
-	ADDLOG_INFO(LOG_FEATURE, "Version2: 일별 리셋 Yesterday_A=%.3f Yesterday_B=%.3f",
-		g_ione_yesterday_a, g_ione_yesterday_b);
+	g_ione_daily_ymd = ymd;
+	IONE_SaveDailyEnergy();
+	ADDLOG_INFO(LOG_FEATURE, "Version2: 일별 리셋 %u Yesterday_A=%.3f Yesterday_B=%.3f",
+		(unsigned)ymd, g_ione_yesterday_a, g_ione_yesterday_b);
 }
 
-static void IONE_PJ1103C_AddTodayKwh(float pa_w, float pb_w) {
-	if (pa_w >= IONE_PJ_PWR_TODAY_MIN_W)
-		g_ione_today_a += pa_w / 3600000.0f;
-	if (pb_w >= IONE_PJ_PWR_TODAY_MIN_W)
-		g_ione_today_b += pb_w / 3600000.0f;
+static void IONE_PJ1103C_AddDailyImportKwh(float kwh_a, float kwh_b) {
+	IONE_PJ1103C_CheckDailyRollover();
+	if (kwh_a > 0.0f)
+		g_ione_today_a += kwh_a;
+	if (kwh_b > 0.0f)
+		g_ione_today_b += kwh_b;
+	if (kwh_a <= 0.0f && kwh_b <= 0.0f)
+		return;
+	g_ione_daily_save_cd++;
+	if (g_ione_daily_save_cd >= 30) {
+		g_ione_daily_save_cd = 0;
+		IONE_SaveDailyEnergy();
+	}
 }
 
 /* autoexec setChannelType이 이미 나눗셈 적용 — GetFinalValue만 사용 (이중 스케일 방지) */
 static float IONE_PJ1103C_GetChannel(int ch) {
 	return CHANNEL_GetFinalValue(ch);
+}
+
+/* Version1(HLW8112)와 동일: 1초마다 유효전력(W) 적분 → Today kWh */
+static void IONE_PJ1103C_IntegrateTodayPerSecond(void) {
+	float pa, pb;
+	float kwh_a = 0.0f;
+	float kwh_b = 0.0f;
+
+	if (!TIME_IsTimeSynced())
+		return;
+
+	pa = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PWR_A);
+	pb = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PWR_B);
+	if (pa >= IONE_PJ_PWR_TODAY_MIN_W)
+		kwh_a = pa / 3600000.0f;
+	if (pb >= IONE_PJ_PWR_TODAY_MIN_W)
+		kwh_b = pb / 3600000.0f;
+	IONE_PJ1103C_AddDailyImportKwh(kwh_a, kwh_b);
 }
 
 static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
@@ -128,8 +223,6 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 	pb = snap->power_b;
 	pfa = snap->factor_a;
 	pfb = snap->factor_b;
-
-	IONE_PJ1103C_AddTodayKwh(pa, pb);
 
 	snap->export_a = 0.0f;
 	snap->export_b = 0.0f;
@@ -182,7 +275,9 @@ static commandResult_t CMD_IONE_Teleperiod(const void *context, const char *cmd,
 }
 
 void IONEEnergyMqtt_Init(void) {
-	g_ione_last_ymd = -1;
+	g_ione_daily_ymd = 0;
+	g_ione_daily_save_cd = 0;
+	IONE_LoadDailyEnergy();
 	g_ione_tele_tick = g_ione_teleperiod_sec;
 	g_ione_mqtt_was_up = 0;
 	IONE_PJ1103C_BlockPerChannelMqtt();
@@ -196,7 +291,7 @@ void IONEEnergyMqtt_RunEverySecond(void) {
 	int mqtt_up = Main_HasMQTTConnected() ? 1 : 0;
 
 	IONE_PJ1103C_BlockPerChannelMqtt();
-	IONE_PJ1103C_CheckDailyRollover();
+	IONE_PJ1103C_IntegrateTodayPerSecond();
 
 	if (mqtt_up && !g_ione_mqtt_was_up)
 		IONE_TeleTryPublish();
