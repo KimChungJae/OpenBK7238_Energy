@@ -2749,6 +2749,7 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 	}
 
 	HLW8112_AppendWebTableStyles(request);
+	poststr(request, "<h4 style=\"margin:8px 0 4px 0;color:#1565c0\">OpenBK7238 Energy Version1 (HLW8112 SPI)</h4>");
 	poststr(request, "<table class='hlw8112-tbl'>");
 	poststr(request, "<colgroup>"
 		"<col style='width:28%'>"

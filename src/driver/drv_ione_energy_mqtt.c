@@ -213,9 +213,9 @@ void IONEEnergyMqtt_RunEverySecond(void) {
 
 void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState) {
 	if (bPreState)
-		poststr(request, "<h4>OpenBK7238 Energy Version2 (PJ-1103C)</h4>");
+		poststr(request, "<h4 style=\"margin:8px 0 4px 0;color:#1565c0\">OpenBK7238 Energy Version2 (PJ-1103C TuyaMCU)</h4>");
 	else
-		hprintf255(request, "<p>Energy Version2 tele/%s/SENSOR every %u s</p>",
+		hprintf255(request, "<p>Energy Version2 · tele/%s/SENSOR · %u s</p>",
 			CFG_GetMQTTClientId(), (unsigned)g_ione_teleperiod_sec);
 }
 #endif /* ENABLE_DRIVER_IONE_ENERGY_MQTT */
