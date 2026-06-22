@@ -29,7 +29,8 @@ linkTuyaMCUOutputToChannel 106 val 6
 linkTuyaMCUOutputToChannel 105 val 7
 linkTuyaMCUOutputToChannel 114 val 8
 linkTuyaMCUOutputToChannel 121 val 9
-linkTuyaMCUOutputToChannel 107 val 10
+# DP108=Forward Energy-B (107은 Reverse Energy-A — Energie B에 쓰면 0)
+linkTuyaMCUOutputToChannel 108 val 10
 linkTuyaMCUOutputToChannel 102 raw 11
 linkTuyaMCUOutputToChannel 104 raw 12
 linkTuyaMCUOutputToChannel 115 val 13
