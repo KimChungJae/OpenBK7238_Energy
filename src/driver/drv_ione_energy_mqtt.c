@@ -309,11 +309,38 @@ void IONEEnergyMqtt_RunEverySecond(void) {
 }
 
 void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState) {
-	if (bPreState)
+	if (bPreState) {
 		poststr(request, "<h4 style=\"margin:8px 0 4px 0;color:#1565c0\">OpenBK7238 Energy Version2 (PJ-1103C TuyaMCU)</h4>");
-	else
-		hprintf255(request, "<p>Energy Version2 · tele/%s/SENSOR · %u s</p>",
-			CFG_GetMQTTClientId(), (unsigned)g_ione_teleperiod_sec);
+		return;
+	}
+	hprintf255(request, "<p>Energy Version2 · tele/%s/SENSOR · %u s</p>",
+		CFG_GetMQTTClientId(), (unsigned)g_ione_teleperiod_sec);
+	poststr(request,
+		"<style>"
+		".ione-v2-daily{max-width:580px;margin:0.35em auto;border-collapse:collapse;width:100%}"
+		".ione-v2-daily td,.ione-v2-daily th{padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums}"
+		".ione-v2-daily .ione-lbl{text-align:left;font-weight:bold}"
+		".ione-v2-daily tr.ione-sec td{border-top:1px solid #5a5a5a;padding-top:8px}"
+		"</style>"
+		"<table class='ione-v2-daily'>"
+		"<tr><th class='ione-lbl'></th><th>A</th><th>B</th></tr>");
+	hprintf255(request,
+		"<tr><td class='ione-lbl'>Today (kWh)</td><td>%.3f</td><td>%.3f</td></tr>",
+		g_ione_today_a, g_ione_today_b);
+	hprintf255(request,
+		"<tr><td class='ione-lbl'>Yesterday (kWh)</td><td>%.3f</td><td>%.3f</td></tr>",
+		g_ione_yesterday_a, g_ione_yesterday_b);
+	hprintf255(request,
+		"<tr class='ione-sec'><td class='ione-lbl'>Today Total (kWh)</td><td colspan='2'>%.3f</td></tr>",
+		g_ione_today_a + g_ione_today_b);
+	hprintf255(request,
+		"<tr><td class='ione-lbl'>Yesterday Total (kWh)</td><td colspan='2'>%.3f</td></tr>",
+		g_ione_yesterday_a + g_ione_yesterday_b);
+	if (!TIME_IsTimeSynced())
+		poststr(request,
+			"<tr><td colspan='3' class='ione-lbl' style='color:#e65100'>"
+			"NTP 미동기 — Today/Yesterday 자정 리셋 불가</td></tr>");
+	poststr(request, "</table>");
 }
 #endif /* ENABLE_DRIVER_IONE_ENERGY_MQTT */
 
