@@ -2690,7 +2690,8 @@ static void HLW8112_AppendWebTableStyles(http_request_t *request) {
 		".hlw8112-tbl tr.hlw-sum td{border-top:1px solid #5a5a5a;padding-top:8px}"
 		".hlw8112-tbl tr.hlw-act td{padding-top:10px;text-align:center}"
 		".hlw8112-tbl .hlw-btn{background-color:#d43535;color:#fff;border:0;border-radius:4px;"
-		"padding:6px 12px;cursor:pointer;max-width:120px}"
+		"padding:4px 10px;cursor:pointer;width:auto;max-width:130px;"
+		"font-size:0.85rem;line-height:1.5rem;display:inline-block}"
 		"</style>");
 }
 
@@ -2822,9 +2823,10 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 		"</tr>");
 	poststr(request,
 		"<tr class='hlw-act'><td class='hlw-lbl'>Full Reset</td>"
-		"<td colspan='2'><button class='hlw-btn' "
+		"<td><button class='hlw-btn' "
 		"onclick='if(confirm(\"Today·Yesterday·Month·Import 전부 0으로 초기화합니다.\"))location.href=\"?clear_energy=1&channel=factory\"'>"
-		"Factory Reset Energy</button></td>"
+		"Factory Reset</button></td>"
+		"<td></td>"
 		"</tr>");
 
 	poststr(request, "</table>");

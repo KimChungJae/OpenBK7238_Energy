@@ -628,8 +628,9 @@ static void IONE_V2_AppendWebTableStyles(http_request_t *request) {
 		".ione-v2-tbl tr.ione-sum td{border-top:1px solid #5a5a5a;padding-top:8px}"
 		".ione-v2-tbl tr.ione-act td{padding-top:10px;text-align:center}"
 		".ione-v2-tbl .ione-btn{background-color:#d43535;color:#fff;border:0;border-radius:4px;"
-		"padding:6px 12px;cursor:pointer;max-width:140px}"
-		".ione-v2-tbl .ione-btn-sec{background-color:#555;margin-top:4px}"
+		"padding:4px 10px;cursor:pointer;width:auto;max-width:130px;"
+		"font-size:0.85rem;line-height:1.5rem;display:inline-block}"
+		".ione-v2-tbl .ione-btn-sec{background-color:#555}"
 		"</style>");
 }
 
@@ -754,9 +755,10 @@ void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, in
 
 	poststr(request,
 		"<tr class='ione-act'><td class='ione-lbl'>Full Reset</td>"
-		"<td colspan='2'><button class='ione-btn' "
+		"<td><button class='ione-btn ione-btn-sec' "
 		"onclick='if(confirm(\"Today·Yesterday·Month·Import 전부 0으로 초기화합니다.\"))location.href=\"?clear_energy=1&channel=factory\"'>"
-		"Factory Reset Energy</button></td>"
+		"Factory Reset</button></td>"
+		"<td></td>"
 		"</tr>");
 
 	poststr(request, "</table>");
@@ -817,8 +819,14 @@ void IONE_EnergyV2_SeedAutoexecIfMissing(void) {
 	byte *existing;
 	int need_seed = 0;
 
+	/* OTA wipe 후 init_lfs(0)은 마운트 실패 → create=1 로 포맷·마운트 필요 */
 	if (!lfs_present())
+		init_lfs(1);
+	if (!lfs_present()) {
+		ADDLOG_ERROR(LOG_FEATURE_ENERGYMETER,
+			"IONE V2: LFS 없음 — autoexec.bat 복원 불가");
 		return;
+	}
 
 	existing = LFS_ReadFile("autoexec.bat");
 	if (existing == NULL) {
