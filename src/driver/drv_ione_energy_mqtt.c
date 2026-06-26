@@ -19,6 +19,9 @@
 #include "../cmnds/cmd_public.h"
 #include "drv_public.h"
 #include "drv_ione_energy_mqtt.h"
+#if ENABLE_DRIVER_TUYAMCU
+#include "drv_tuyaMCU.h"
+#endif
 #if ENABLE_LITTLEFS
 #include "../littlefs/our_lfs.h"
 #endif
@@ -55,6 +58,12 @@ extern int g_doNotPublishChannels;
 #define IONE_MONTH_SANITY_KWH         3000.0f
 #define IONE_MONTH_B_ENV               "IONE_MON_B"
 #define IONE_IMP_B_ENV                 "IONE_IMP_B"
+#define IONE_TUYA_BASE_A_ENV           "IONE_TUYA_BASE_A"
+#define IONE_TUYA_BASE_B_ENV           "IONE_TUYA_BASE_B"
+/* PJ-1103C wr DP — coef 리셋(공개 Tuya 모델); 에너지 clear DP는 없음 */
+#define IONE_PJ_DP_COEF_RESET_A        120U
+#define IONE_PJ_DP_COEF_RESET_B        126U
+#define IONE_PJ_TUYA_RESET_WAIT_MS     500U
 
 #define IONE_TELE_SENSOR_MIN_MS        800U   /* SENSOR 연속 발행 간격 — 페이로드 이중·병합 방지 */
 
@@ -71,6 +80,8 @@ static float g_ione_yesterday_b;
 static float g_ione_import_b;
 static float g_ione_month_a;
 static float g_ione_month_b;
+static float g_ione_tuya_base_a;
+static float g_ione_tuya_base_b;
 static uint8_t g_ione_clear_busy;
 static uint32_t g_ione_last_clear_ms;
 static int g_ione_channels_private_done;
@@ -82,6 +93,8 @@ static void IONE_LoadMonthEnergyB(void);
 static void IONE_SaveMonthEnergyB(void);
 static void IONE_SaveImportB(void);
 static void IONE_LoadImportB(void);
+static void IONE_LoadTuyaBase(void);
+static void IONE_SaveTuyaBase(void);
 static void IONE_SaveDailyEnergy(void);
 static void IONE_TeleTryPublish(void);
 static int IONE_TeleSensorPublishAllowed(void);
@@ -93,6 +106,12 @@ static void IONE_ClearEnergyTryEnd(void);
 static void IONE_ClearEnergyChannelA(void);
 static void IONE_ClearEnergyChannelB(void);
 static void IONE_ClearEnergyBoth(void);
+static float IONE_PJ1103C_GetChannel(int ch);
+static float IONE_PJ1103C_ResolveTotalBkWh(void);
+#if ENABLE_DRIVER_TUYAMCU
+static void IONE_PJ1103C_PulseTuyaBoolDp(uint8_t dp_id);
+static void IONE_PJ1103C_TryTuyaMeterReset(float *raw_a, float *raw_b);
+#endif
 static commandResult_t CMD_IONE_ClearEnergy(const void *context, const char *cmd, const char *args, int cmdFlags);
 static commandResult_t CMD_IONE_SetEnergyStat(const void *context, const char *cmd, const char *args, int cmdFlags);
 static commandResult_t CMD_IONE_EnergyTotal(const void *context, const char *cmd, const char *args, int cmdFlags);
@@ -158,6 +177,29 @@ static void IONE_SaveImportB(void) {
 #endif
 }
 
+static void IONE_LoadTuyaBase(void) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	size_t len_a = 0;
+	size_t len_b = 0;
+
+	g_ione_tuya_base_a = 0.0f;
+	g_ione_tuya_base_b = 0.0f;
+	ef_get_env_blob(IONE_TUYA_BASE_A_ENV, &g_ione_tuya_base_a, sizeof(g_ione_tuya_base_a), &len_a);
+	ef_get_env_blob(IONE_TUYA_BASE_B_ENV, &g_ione_tuya_base_b, sizeof(g_ione_tuya_base_b), &len_b);
+	if (len_a != sizeof(g_ione_tuya_base_a) || g_ione_tuya_base_a < 0.0f || g_ione_tuya_base_a > 999999.0f)
+		g_ione_tuya_base_a = 0.0f;
+	if (len_b != sizeof(g_ione_tuya_base_b) || g_ione_tuya_base_b < 0.0f || g_ione_tuya_base_b > 999999.0f)
+		g_ione_tuya_base_b = 0.0f;
+#endif
+}
+
+static void IONE_SaveTuyaBase(void) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	ef_set_env_blob(IONE_TUYA_BASE_A_ENV, &g_ione_tuya_base_a, sizeof(g_ione_tuya_base_a));
+	ef_set_env_blob(IONE_TUYA_BASE_B_ENV, &g_ione_tuya_base_b, sizeof(g_ione_tuya_base_b));
+#endif
+}
+
 static void IONE_ResetMonthEnergy(void) {
 	g_ione_month_a = 0.0f;
 	g_ione_month_b = 0.0f;
@@ -217,13 +259,29 @@ static void IONE_ClearEnergyBoth(void) {
 
 /* Today·Yesterday·Month·Import(Tuya) 전부 0 — 공장 전력 초기화 */
 static void IONE_ClearEnergyFactory(void) {
+	float raw_a;
+	float raw_b;
+
+	raw_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
+	raw_b = IONE_PJ1103C_ResolveTotalBkWh();
+#if ENABLE_DRIVER_TUYAMCU
+	IONE_PJ1103C_TryTuyaMeterReset(&raw_a, &raw_b);
+#endif
+
 	g_ione_yesterday_a = 0.0f;
 	g_ione_yesterday_b = 0.0f;
 	g_ione_month_a = 0.0f;
 	g_ione_month_b = 0.0f;
 	IONE_ClearEnergyBoth();
 	IONE_SaveMonthEnergyB();
-	ADDLOG_INFO(LOG_FEATURE, "clear_energy factory: Today/Yesterday/Month/Import A·B=0");
+
+	/* Tuya ro DP106/108 — 칩 초기화 실패 시 baseline으로 MQTT Total 0 표시 */
+	g_ione_tuya_base_a = raw_a;
+	g_ione_tuya_base_b = raw_b;
+	IONE_SaveTuyaBase();
+	ADDLOG_INFO(LOG_FEATURE,
+		"clear_energy factory: flash=0, Total baseline A=%.3f B=%.3f (Tuya raw after reset try)",
+		raw_a, raw_b);
 }
 
 static void IONE_LoadDailyEnergy(void) {
@@ -368,6 +426,57 @@ static float IONE_PJ1103C_GetChannel(int ch) {
 	return CHANNEL_GetFinalValue(ch);
 }
 
+/* Factory Reset baseline 적용 — Tuya 하드웨어 누적은 유지, MQTT Total만 0 기준 */
+static float IONE_PJ1103C_PublicTotalKwh(float raw, float baseline) {
+	float v = raw - baseline;
+
+	return (v > 0.0f) ? v : 0.0f;
+}
+
+#if ENABLE_DRIVER_TUYAMCU
+/* Tuya wr bool DP — 1 후 0 펄스 (coef_a_reset / coef_b_reset) */
+static void IONE_PJ1103C_PulseTuyaBoolDp(uint8_t dp_id) {
+	TuyaMCU_SendBool(dp_id, true);
+	rtos_delay_milliseconds(200);
+	TuyaMCU_SendBool(dp_id, false);
+}
+
+/* metering MCU 쪽 누적 초기화 시도 — 실패 시 *raw_* 는 baseline용 현재값 유지 */
+static void IONE_PJ1103C_TryTuyaMeterReset(float *raw_a, float *raw_b) {
+	float before_a;
+	float before_b;
+	float after_a;
+	float after_b;
+
+	if (!raw_a || !raw_b || !DRV_IsRunning("TuyaMCU"))
+		return;
+
+	before_a = *raw_a;
+	before_b = *raw_b;
+	ADDLOG_INFO(LOG_FEATURE,
+		"factory: Tuya DP%u/%u coef reset pulse (누적 clear 시도, ro DP106/108)",
+		(unsigned)IONE_PJ_DP_COEF_RESET_A, (unsigned)IONE_PJ_DP_COEF_RESET_B);
+	IONE_PJ1103C_PulseTuyaBoolDp(IONE_PJ_DP_COEF_RESET_A);
+	IONE_PJ1103C_PulseTuyaBoolDp(IONE_PJ_DP_COEF_RESET_B);
+	CMD_ExecuteCommand("tuyaMcu_sendQueryState", 0);
+	rtos_delay_milliseconds(IONE_PJ_TUYA_RESET_WAIT_MS);
+
+	after_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
+	after_b = IONE_PJ1103C_ResolveTotalBkWh();
+	*raw_a = after_a;
+	*raw_b = after_b;
+
+	if (after_a + 0.001f < before_a || after_b + 0.001f < before_b)
+		ADDLOG_INFO(LOG_FEATURE,
+			"factory: Tuya raw Total 감소 A %.3f->%.3f B %.3f->%.3f",
+			before_a, after_a, before_b, after_b);
+	else
+		ADDLOG_WARN(LOG_FEATURE,
+			"factory: Tuya raw Total 미변경 A=%.3f B=%.3f — baseline으로 MQTT 0 표시",
+			after_a, after_b);
+}
+#endif
+
 /* PJ-1103C: DP108(Forward B) 미전송·DP107(Reverse A) 오매핑 시 ch10=0 보완 */
 static float IONE_PJ1103C_ResolveTotalBkWh(void) {
 	float meter_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
@@ -434,8 +543,10 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 	snap->factor_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_A);
 	snap->factor_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_B);
 	IONE_PJ1103C_SyncTotalB();
-	snap->total_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
-	snap->total_b = IONE_PJ1103C_ResolveTotalBkWh();
+	snap->total_a = IONE_PJ1103C_PublicTotalKwh(
+		IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A), g_ione_tuya_base_a);
+	snap->total_b = IONE_PJ1103C_PublicTotalKwh(
+		IONE_PJ1103C_ResolveTotalBkWh(), g_ione_tuya_base_b);
 
 	pa = snap->power_a;
 	pb = snap->power_b;
@@ -594,6 +705,7 @@ void IONEEnergyMqtt_Init(void) {
 	g_ione_daily_ymd = 0;
 	g_ione_daily_save_cd = 0;
 	IONE_LoadDailyEnergy();
+	IONE_LoadTuyaBase();
 	g_ione_tele_tick = g_ione_teleperiod_sec;
 	g_ione_mqtt_was_up = 0;
 	IONE_PJ1103C_BlockPerChannelMqtt();
@@ -777,7 +889,7 @@ void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, in
 	poststr(request,
 		"<tr class='ione-act'><td class='ione-lbl'>Full Reset</td>"
 		"<td><button class='ione-btn ione-btn-sec' "
-		"onclick='if(confirm(\"Today·Yesterday·Month·Import 전부 0으로 초기화합니다.\"))location.href=\"?clear_energy=1&channel=factory\"'>"
+		"onclick='if(confirm(\"Today·Yesterday·Month·Import·Total 전부 0으로 초기화합니다.\"))location.href=\"?clear_energy=1&channel=factory\"'>"
 		"Factory Reset</button></td>"
 		"<td></td>"
 		"</tr>");
