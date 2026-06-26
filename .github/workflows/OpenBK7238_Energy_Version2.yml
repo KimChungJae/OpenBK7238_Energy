@@ -34,6 +34,20 @@ jobs:
           grep -q "OBK_VARIANT_IONE_ENERGY_V2" src/obk_config.h
           grep -q "ENABLE_DRIVER_IONE_ENERGY_MQTT" src/obk_config.h
           grep -q "IONE_EnergyMqtt_PublishTeleSensor" src/driver/drv_ione_energy_mqtt.c
+          grep -q "IONE_TeleSensorPublishAllowed" src/driver/drv_ione_energy_mqtt.c
+          python3 - <<'PY'
+import re, sys
+text = open("src/driver/drv_ione_energy_mqtt.c", encoding="utf-8").read()
+m = re.search(r"void IONE_EnergyMqtt_PublishTeleSensor\(.*?\n\}", text, re.S)
+if not m:
+    sys.exit("PublishTeleSensor block not found")
+block = m.group(0)
+for key in ("EnergyTotal_A", "Power_A", "Today_A", "Voltage", "Current_A", "Time"):
+    n = block.count(f'"{key}":')
+    if n != 1:
+        sys.exit(f'duplicate JSON key in SENSOR template: {key} appears {n} times')
+print("SENSOR JSON keys unique OK")
+PY
           grep -q "OpenBK7238 Energy Version2" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_EnergyV2_SeedAutoexecIfMissing" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_EnergyV2_SeedAutoexecIfMissing" src/user_main.c

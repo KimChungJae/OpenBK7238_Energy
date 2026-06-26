@@ -56,9 +56,12 @@ extern int g_doNotPublishChannels;
 #define IONE_MONTH_B_ENV               "IONE_MON_B"
 #define IONE_IMP_B_ENV                 "IONE_IMP_B"
 
+#define IONE_TELE_SENSOR_MIN_MS        800U   /* SENSOR 연속 발행 간격 — 페이로드 이중·병합 방지 */
+
 static uint16_t g_ione_teleperiod_sec = IONE_PJ_TELE_DEFAULT_SEC;
 static uint16_t g_ione_tele_tick;
 static uint8_t g_ione_mqtt_was_up;
+static uint32_t g_ione_last_sensor_pub_ms;
 static uint32_t g_ione_daily_ymd;
 static uint8_t g_ione_daily_save_cd;
 static float g_ione_today_a;
@@ -81,6 +84,7 @@ static void IONE_SaveImportB(void);
 static void IONE_LoadImportB(void);
 static void IONE_SaveDailyEnergy(void);
 static void IONE_TeleTryPublish(void);
+static int IONE_TeleSensorPublishAllowed(void);
 static void IONE_ResetMonthEnergy(void);
 static float IONE_EnergyTotalA(void);
 static float IONE_EnergyTotalB(void);
@@ -460,12 +464,26 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 	(void)IONE_PJ1103C_GetChannel(IONE_PJ_CH_NET_PWR);
 }
 
+/* tele/SENSOR 최소 발행 간격 — MQTT 재연결+teleperiod 동시·연속 발행 시 구독측 키 중복 병합 완화 */
+static int IONE_TeleSensorPublishAllowed(void) {
+	uint32_t now = (uint32_t)rtos_get_time();
+
+	if (g_ione_last_sensor_pub_ms != 0U &&
+		(now - g_ione_last_sensor_pub_ms) < IONE_TELE_SENSOR_MIN_MS) {
+		return 0;
+	}
+	g_ione_last_sensor_pub_ms = now;
+	return 1;
+}
+
 static void IONE_TeleTryPublish(void) {
 	ione_energy_mqtt_snapshot_t snap;
 
 	if (!Main_HasMQTTConnected())
 		return;
 	IONE_EnergyMqtt_PublishTeleState();
+	if (!IONE_TeleSensorPublishAllowed())
+		return;
 	IONE_PJ1103C_ReadSnapshot(&snap);
 	IONE_EnergyMqtt_PublishTeleSensor(&snap);
 }
@@ -594,8 +612,11 @@ void IONEEnergyMqtt_RunEverySecond(void) {
 	IONE_PJ1103C_BlockPerChannelMqtt();
 	IONE_PJ1103C_IntegratePerSecond();
 
-	if (mqtt_up && !g_ione_mqtt_was_up)
+	if (mqtt_up && !g_ione_mqtt_was_up) {
 		IONE_TeleTryPublish();
+		/* 재연결 직후 tele_tick==0이면 같은 초에 teleperiod 발행이 겹침 */
+		g_ione_tele_tick = g_ione_teleperiod_sec;
+	}
 	g_ione_mqtt_was_up = (uint8_t)mqtt_up;
 
 	if (!mqtt_up)
@@ -983,6 +1004,7 @@ void IONE_EnergyMqtt_PublishTeleSensor(const ione_energy_mqtt_snapshot_t *snap) 
 	timeStr = TS2STR(TIME_GetCurrentTime(), TIME_FORMAT_ISO_8601);
 	hostname = CFG_GetShortDeviceName();
 	ipStr = HAL_GetMyIPString();
+	/* ENERGY 키는 각 1회만 — H750/Tasmota 파서 호환 (중복 키 JSON 금지) */
 	snprintf(payload, sizeof(payload),
 		"{\"Time\":\"%s\",\"ENERGY\":{"
 		"\"Total_A\":%.3f,\"Total_B\":%.3f,"
