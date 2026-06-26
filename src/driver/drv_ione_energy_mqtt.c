@@ -70,7 +70,6 @@ static uint32_t g_ione_last_clear_ms;
 static int g_ione_channels_private_done;
 
 extern int OTA_GetProgress(void);
-extern int rtos_get_time(void);
 
 static void IONE_SanitizeMonthEnergy(float *kwh);
 static void IONE_LoadMonthEnergyB(void);
@@ -458,7 +457,7 @@ static void IONE_TeleTryPublish(void) {
 }
 
 static commandResult_t CMD_IONE_ClearEnergy(const void *context, const char *cmd, const char *args, int cmdFlags) {
-	char *channel;
+	const char *channel;
 
 	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
 	if (Tokenizer_CheckArgsCountAndPrintWarning(cmd, 1))
