@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/OpenBK7238_Energy_Version2.yml'
+      - '.github/scripts/**'
       - 'OpenBK7238_Energy_Version2/**'
       - 'src/driver/drv_ione_energy_mqtt.c'
       - 'src/driver/drv_ione_energy_mqtt.h'
@@ -35,19 +36,7 @@ jobs:
           grep -q "ENABLE_DRIVER_IONE_ENERGY_MQTT" src/obk_config.h
           grep -q "IONE_EnergyMqtt_PublishTeleSensor" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_TeleSensorPublishAllowed" src/driver/drv_ione_energy_mqtt.c
-          python3 - <<'PY'
-import re, sys
-text = open("src/driver/drv_ione_energy_mqtt.c", encoding="utf-8").read()
-m = re.search(r"void IONE_EnergyMqtt_PublishTeleSensor\(.*?\n\}", text, re.S)
-if not m:
-    sys.exit("PublishTeleSensor block not found")
-block = m.group(0)
-for key in ("EnergyTotal_A", "Power_A", "Today_A", "Voltage", "Current_A", "Time"):
-    n = block.count(f'"{key}":')
-    if n != 1:
-        sys.exit(f'duplicate JSON key in SENSOR template: {key} appears {n} times')
-print("SENSOR JSON keys unique OK")
-PY
+          python3 .github/scripts/verify_v2_sensor_json_keys.py
           grep -q "OpenBK7238 Energy Version2" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_EnergyV2_SeedAutoexecIfMissing" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_EnergyV2_SeedAutoexecIfMissing" src/user_main.c
