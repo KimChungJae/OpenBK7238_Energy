@@ -590,41 +590,143 @@ void IONEEnergyMqtt_RunEverySecond(void) {
 	}
 }
 
-void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState) {
-	if (bPreState) {
-		poststr(request, "<h4 style=\"margin:8px 0 4px 0;color:#1565c0\">OpenBK7238 Energy Version2 (PJ-1103C TuyaMCU)</h4>");
-		return;
-	}
-	hprintf255(request, "<p>Energy Version2 · tele/%s/SENSOR+STATE · %u s</p>",
-		CFG_GetMQTTClientId(), (unsigned)g_ione_teleperiod_sec);
+static void IONE_V2_AppendWebTableStyles(http_request_t *request) {
 	poststr(request,
 		"<style>"
-		".ione-v2-daily{max-width:580px;margin:0.35em auto;border-collapse:collapse;width:100%}"
-		".ione-v2-daily td,.ione-v2-daily th{padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums}"
-		".ione-v2-daily .ione-lbl{text-align:left;font-weight:bold}"
-		".ione-v2-daily tr.ione-sec td{border-top:1px solid #5a5a5a;padding-top:8px}"
-		"</style>"
-		"<table class='ione-v2-daily'>"
-		"<tr><th class='ione-lbl'></th><th>A</th><th>B</th></tr>");
+		"#main>h1{max-width:580px;margin:0.35em auto 0.2em;text-align:left;padding:0}"
+		".ione-v2-tbl{width:100%;max-width:580px;margin:0.35em auto;border-collapse:collapse;table-layout:fixed}"
+		".ione-v2-tbl td,.ione-v2-tbl th{padding:6px 8px;vertical-align:middle}"
+		".ione-v2-tbl .ione-lbl{text-align:left;white-space:nowrap;font-weight:bold;padding-left:0}"
+		".ione-v2-tbl .ione-ch{text-align:right;font-variant-numeric:tabular-nums;"
+		"padding-right:4px;white-space:nowrap}"
+		".ione-v2-tbl .ione-line{text-align:left;padding-left:0;padding-right:0}"
+		".ione-v2-tbl .ione-line .ione-val{font-variant-numeric:tabular-nums;font-weight:bold}"
+		".ione-v2-tbl th.ione-ch{text-align:right;font-weight:normal;color:#ccc}"
+		".ione-v2-tbl .ione-unit{color:#b0b0b0;font-size:0.9em;margin-left:3px;font-weight:normal}"
+		".ione-v2-tbl tr.ione-hdr th{border-bottom:1px solid #5a5a5a;padding-bottom:8px}"
+		".ione-v2-tbl tr.ione-sec td{border-top:1px solid #5a5a5a;padding-top:10px;color:#ccc;"
+		"font-size:0.9em;text-align:left;padding-left:0}"
+		".ione-v2-tbl tr.ione-sum td{border-top:1px solid #5a5a5a;padding-top:8px}"
+		".ione-v2-tbl tr.ione-act td{padding-top:10px;text-align:center}"
+		".ione-v2-tbl .ione-btn{background-color:#d43535;color:#fff;border:0;border-radius:4px;"
+		"padding:6px 12px;cursor:pointer;max-width:140px}"
+		".ione-v2-tbl .ione-btn-sec{background-color:#555;margin-top:4px}"
+		"</style>");
+}
+
+static void IONE_V2_AppendSummaryRow(http_request_t *request, const char *name, const char *unit,
+		float value, int precision) {
 	hprintf255(request,
-		"<tr><td class='ione-lbl'>Today (kWh)</td><td>%.3f</td><td>%.3f</td></tr>",
-		g_ione_today_a, g_ione_today_b);
+		"<tr><td class='ione-lbl'>%s</td>"
+		"<td class='ione-ch' colspan='2'>%.*f<span class='ione-unit'>%s</span></td></tr>",
+		name, precision, value, unit);
+}
+
+static void IONE_V2_AppendChannelRow(http_request_t *request, const char *name, const char *unit,
+		float value_a, float value_b, int precision) {
 	hprintf255(request,
-		"<tr><td class='ione-lbl'>Yesterday (kWh)</td><td>%.3f</td><td>%.3f</td></tr>",
-		g_ione_yesterday_a, g_ione_yesterday_b);
+		"<tr><td class='ione-lbl'>%s</td>"
+		"<td class='ione-ch'>%.*f<span class='ione-unit'>%s</span></td>"
+		"<td class='ione-ch'>%.*f<span class='ione-unit'>%s</span></td></tr>",
+		name, precision, value_a, unit, precision, value_b, unit);
+}
+
+static void IONE_V2_AppendTotalRow(http_request_t *request, const char *name, const char *unit,
+		float total, int precision) {
 	hprintf255(request,
-		"<tr class='ione-sec'><td class='ione-lbl'>Today Total (kWh)</td><td colspan='2'>%.3f</td></tr>",
-		g_ione_today_a + g_ione_today_b);
-	hprintf255(request,
-		"<tr><td class='ione-lbl'>Yesterday Total (kWh)</td><td colspan='2'>%.3f</td></tr>",
-		g_ione_yesterday_a + g_ione_yesterday_b);
-	hprintf255(request,
-		"<tr class='ione-sec'><td class='ione-lbl'>Import B (kWh)</td><td colspan='2'>%.3f</td></tr>",
-		g_ione_import_b);
+		"<tr class='ione-sum'><td colspan='3' class='ione-line'>"
+		"<span class='ione-lbl'>%s</span>&nbsp;&nbsp;"
+		"<span class='ione-val'>%.*f<span class='ione-unit'>%s</span></span>"
+		"</td></tr>",
+		name, precision, total, unit);
+}
+
+static void IONE_V2_HandleWebActions(http_request_t *request) {
+	if (http_getArgInteger(request->url, "clear_energy")) {
+		char channel[16];
+
+		if (http_getArg(request->url, "channel", channel, sizeof(channel))) {
+			if (!strcmp("all", channel) || !strcmp("both", channel)) {
+				if (IONE_ClearEnergyTryBegin()) {
+					IONE_ClearEnergyBoth();
+					IONE_ClearEnergyTryEnd();
+					IONE_TeleTryPublish();
+				}
+			} else if (!strcmp("a", channel) || !strcmp("channel_a", channel)) {
+				IONE_ClearEnergyChannelA();
+				IONE_TeleTryPublish();
+			} else if (!strcmp("b", channel) || !strcmp("channel_b", channel)) {
+				IONE_ClearEnergyChannelB();
+				IONE_TeleTryPublish();
+			}
+		}
+		return;
+	}
+	if (http_getArgInteger(request->url, "energy_total_reset")) {
+		IONE_ResetMonthEnergy();
+		IONE_TeleTryPublish();
+	}
+}
+
+void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState) {
+	ione_energy_mqtt_snapshot_t snap;
+
+	if (bPreState) {
+		IONE_V2_HandleWebActions(request);
+		return;
+	}
+
+	IONE_PJ1103C_ReadSnapshot(&snap);
+	IONE_V2_AppendWebTableStyles(request);
+	poststr(request, "<h4 style=\"margin:8px 0 4px 0;color:#1565c0\">OpenBK7238 Energy Version2 (PJ-1103C TuyaMCU)</h4>");
+	hprintf255(request, "<p style=\"max-width:580px;margin:0.2em auto 0.6em\">tele/%s/SENSOR+STATE · %u s</p>",
+		CFG_GetMQTTClientId(), (unsigned)g_ione_teleperiod_sec);
+	poststr(request, "<table class='ione-v2-tbl'>");
+	poststr(request, "<colgroup>"
+		"<col style='width:28%'>"
+		"<col style='width:36%'>"
+		"<col style='width:36%'>"
+		"</colgroup>");
+	poststr(request, "<tr class='ione-hdr'><th class='ione-lbl'></th>"
+		"<th class='ione-ch'>Channel A</th>"
+		"<th class='ione-ch'>Channel B</th></tr>");
+
+	poststr(request, "<tr class='ione-sec'><td colspan='3'>Common</td></tr>");
+	IONE_V2_AppendSummaryRow(request, "Voltage", "V", snap.voltage, 1);
+	IONE_V2_AppendSummaryRow(request, "Frequency", "Hz", snap.frequency, 2);
+
+	poststr(request, "<tr class='ione-sec'><td colspan='3'>Per Channel</td></tr>");
+	IONE_V2_AppendChannelRow(request, "Current", "A", snap.current_a, snap.current_b, 3);
+	IONE_V2_AppendChannelRow(request, "Active Power", "W", snap.power_a, snap.power_b, 1);
+	IONE_V2_AppendChannelRow(request, "Power Factor", "%", snap.factor_a, snap.factor_b, 1);
+	IONE_V2_AppendChannelRow(request, "Import (Tuya)", "kWh", snap.total_a, snap.total_b, 3);
+	IONE_V2_AppendChannelRow(request, "Today", "kWh", snap.today_a, snap.today_b, 3);
+	IONE_V2_AppendChannelRow(request, "Yesterday", "kWh", snap.yesterday_a, snap.yesterday_b, 3);
+	IONE_V2_AppendChannelRow(request, "Energy Total", "kWh",
+		snap.energy_total_a, snap.energy_total_b, 3);
+
+	poststr(request, "<tr class='ione-sec'><td colspan='3'>Daily Total (A+B)</td></tr>");
+	IONE_V2_AppendTotalRow(request, "Today Total", "kWh", snap.today_a + snap.today_b, 3);
+	IONE_V2_AppendTotalRow(request, "Yesterday Total", "kWh", snap.yesterday_a + snap.yesterday_b, 3);
+	IONE_V2_AppendTotalRow(request, "Energy Total (A+B)", "kWh",
+		snap.energy_total_a + snap.energy_total_b, 3);
+
 	if (!TIME_IsTimeSynced())
 		poststr(request,
 			"<tr><td colspan='3' class='ione-lbl' style='color:#e65100'>"
 			"NTP 미동기 — Today/Yesterday 자정 리셋 불가</td></tr>");
+
+	poststr(request,
+		"<tr class='ione-act'><td class='ione-lbl'>Clear Import/Today</td>"
+		"<td><button class='ione-btn' onclick='location.href=\"?clear_energy=1&channel=a\"'>Clear A</button></td>"
+		"<td><button class='ione-btn' onclick='location.href=\"?clear_energy=1&channel=b\"'>Clear B</button></td>"
+		"</tr>");
+	poststr(request,
+		"<tr class='ione-act'><td class='ione-lbl'>Clear All / Month</td>"
+		"<td><button class='ione-btn ione-btn-sec' onclick='location.href=\"?clear_energy=1&channel=all\"'>Clear All</button></td>"
+		"<td><button class='ione-btn ione-btn-sec' onclick='location.href=\"?energy_total_reset=1\"'>Reset EnergyTotal</button></td>"
+		"</tr>");
+
 	poststr(request, "</table>");
 }
 
