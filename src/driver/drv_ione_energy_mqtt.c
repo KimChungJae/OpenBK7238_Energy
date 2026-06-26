@@ -77,6 +77,8 @@ static void IONE_LoadMonthEnergyB(void);
 static void IONE_SaveMonthEnergyB(void);
 static void IONE_SaveImportB(void);
 static void IONE_LoadImportB(void);
+static void IONE_SaveDailyEnergy(void);
+static void IONE_TeleTryPublish(void);
 static void IONE_ResetMonthEnergy(void);
 static float IONE_EnergyTotalA(void);
 static float IONE_EnergyTotalB(void);
