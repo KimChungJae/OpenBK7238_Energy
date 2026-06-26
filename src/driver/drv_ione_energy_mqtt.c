@@ -211,6 +211,17 @@ static void IONE_ClearEnergyBoth(void) {
 	ADDLOG_INFO(LOG_FEATURE, "clear_energy: A·B Import/Today=0 (flash)");
 }
 
+/* Today·Yesterday·Month·Import(Tuya) 전부 0 — 공장 전력 초기화 */
+static void IONE_ClearEnergyFactory(void) {
+	g_ione_yesterday_a = 0.0f;
+	g_ione_yesterday_b = 0.0f;
+	g_ione_month_a = 0.0f;
+	g_ione_month_b = 0.0f;
+	IONE_ClearEnergyBoth();
+	IONE_SaveMonthEnergyB();
+	ADDLOG_INFO(LOG_FEATURE, "clear_energy factory: Today/Yesterday/Month/Import A·B=0");
+}
+
 static void IONE_LoadDailyEnergy(void) {
 	ENERGY_METERING_DATA em;
 	uint32_t stored;
@@ -466,6 +477,14 @@ static commandResult_t CMD_IONE_ClearEnergy(const void *context, const char *cmd
 	if (Tokenizer_CheckArgsCountAndPrintWarning(cmd, 1))
 		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
 	channel = Tokenizer_GetArg(0);
+	if (!strcmp("factory", channel) || !strcmp("full", channel)) {
+		if (!IONE_ClearEnergyTryBegin())
+			return CMD_RES_BAD_ARGUMENT;
+		IONE_ClearEnergyFactory();
+		IONE_ClearEnergyTryEnd();
+		IONE_TeleTryPublish();
+		return CMD_RES_OK;
+	}
 	if (!strcmp("all", channel) || !strcmp("both", channel) || !strcmp("channel_ab", channel)) {
 		if (!IONE_ClearEnergyTryBegin())
 			return CMD_RES_BAD_ARGUMENT;
@@ -484,7 +503,7 @@ static commandResult_t CMD_IONE_ClearEnergy(const void *context, const char *cmd
 		IONE_TeleTryPublish();
 		return CMD_RES_OK;
 	}
-	ADDLOG_WARN(LOG_FEATURE, "clear_energy: channel_a|channel_b|all");
+	ADDLOG_WARN(LOG_FEATURE, "clear_energy: channel_a|channel_b|all|factory");
 	return CMD_RES_BAD_ARGUMENT;
 }
 
@@ -646,7 +665,13 @@ static void IONE_V2_HandleWebActions(http_request_t *request) {
 		char channel[16];
 
 		if (http_getArg(request->url, "channel", channel, sizeof(channel))) {
-			if (!strcmp("all", channel) || !strcmp("both", channel)) {
+			if (!strcmp("factory", channel) || !strcmp("full", channel)) {
+				if (IONE_ClearEnergyTryBegin()) {
+					IONE_ClearEnergyFactory();
+					IONE_ClearEnergyTryEnd();
+					IONE_TeleTryPublish();
+				}
+			} else if (!strcmp("all", channel) || !strcmp("both", channel)) {
 				if (IONE_ClearEnergyTryBegin()) {
 					IONE_ClearEnergyBoth();
 					IONE_ClearEnergyTryEnd();
@@ -725,6 +750,13 @@ void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, in
 		"<tr class='ione-act'><td class='ione-lbl'>Clear All / Month</td>"
 		"<td><button class='ione-btn ione-btn-sec' onclick='location.href=\"?clear_energy=1&channel=all\"'>Clear All</button></td>"
 		"<td><button class='ione-btn ione-btn-sec' onclick='location.href=\"?energy_total_reset=1\"'>Reset EnergyTotal</button></td>"
+		"</tr>");
+
+	poststr(request,
+		"<tr class='ione-act'><td class='ione-lbl'>Full Reset</td>"
+		"<td colspan='2'><button class='ione-btn' "
+		"onclick='if(confirm(\"Today·Yesterday·Month·Import 전부 0으로 초기화합니다.\"))location.href=\"?clear_energy=1&channel=factory\"'>"
+		"Factory Reset Energy</button></td>"
 		"</tr>");
 
 	poststr(request, "</table>");

@@ -1172,6 +1172,18 @@ static void HLW8112_ClearEnergyBoth(void) {
 	HLW8112_CaptureDailyBootBaseline();
 	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER, "clear_energy: A·B Import/Export/Today 0 (flash)");
 }
+
+static void HLW8112_ClearEnergyFactory(void) {
+	HLW8112_ClearEnergyBoth();
+	g_hlw8112_yesterday_a = 0.0f;
+	g_hlw8112_yesterday_b = 0.0f;
+	g_hlw8112_month_a = 0.0f;
+	g_hlw8112_month_b = 0.0f;
+	HLW8112_SaveDailyEnergy();
+	HLW8112_SaveMonthEnergyB();
+	ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
+		"clear_energy factory: Today/Yesterday/Month/Import·Export A·B=0");
+}
 #endif
 
 void HLW8112_Set_EnergyStat(HLW8112_Channel_t channel, float import, float export) {
@@ -1475,6 +1487,13 @@ static commandResult_t HLW8112_ClearEnergy(const void *context, const char *cmd,
 	}
 	char* channel = Tokenizer_GetArg(0);
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	if (!strcmp("factory", channel) || !strcmp("full", channel)) {
+		if (!HLW8112_ClearEnergyTryBegin())
+			return CMD_RES_BAD_ARGUMENT;
+		HLW8112_ClearEnergyFactory();
+		HLW8112_ClearEnergyTryEnd();
+		return CMD_RES_OK;
+	}
 	if (!strcmp("all", channel) || !strcmp("both", channel) || !strcmp("channel_ab", channel)) {
 		if (!HLW8112_ClearEnergyTryBegin())
 			return CMD_RES_BAD_ARGUMENT;
@@ -1488,7 +1507,7 @@ static commandResult_t HLW8112_ClearEnergy(const void *context, const char *cmd,
 	} else if (!strcmp("channel_b", channel) || !strcmp("b", channel)) {
 		HLW8112_Set_EnergyStat(HLW8112_CHANNEL_B, 0, 0);
 	} else {
-		ADDLOG_WARN(LOG_FEATURE_CMD, "clear_energy: channel_a|channel_b|all");
+		ADDLOG_WARN(LOG_FEATURE_CMD, "clear_energy: channel_a|channel_b|all|factory");
 		return CMD_RES_BAD_ARGUMENT;
 	}
 	return CMD_RES_OK;
@@ -2721,6 +2740,12 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 			char channel[8];
 			if (http_getArg(request->url, "channel", channel, sizeof(channel))) {
 #if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+				if (!strcmp("factory", channel) || !strcmp("full", channel)) {
+					if (HLW8112_ClearEnergyTryBegin()) {
+						HLW8112_ClearEnergyFactory();
+						HLW8112_ClearEnergyTryEnd();
+					}
+				} else
 				if (!strcmp("all", channel) || !strcmp("both", channel)) {
 					if (HLW8112_ClearEnergyTryBegin()) {
 						HLW8112_ClearEnergyBoth();
@@ -2794,6 +2819,12 @@ void HLW8112_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreS
 		"<tr class='hlw-act'><td class='hlw-lbl'>Actions</td>"
 		"<td><button class='hlw-btn' onclick='location.href=\"?clear_energy=1&channel=a\"'>Clear A</button></td>"
 		"<td><button class='hlw-btn' onclick='location.href=\"?clear_energy=1&channel=b\"'>Clear B</button></td>"
+		"</tr>");
+	poststr(request,
+		"<tr class='hlw-act'><td class='hlw-lbl'>Full Reset</td>"
+		"<td colspan='2'><button class='hlw-btn' "
+		"onclick='if(confirm(\"Today·Yesterday·Month·Import 전부 0으로 초기화합니다.\"))location.href=\"?clear_energy=1&channel=factory\"'>"
+		"Factory Reset Energy</button></td>"
 		"</tr>");
 
 	poststr(request, "</table>");

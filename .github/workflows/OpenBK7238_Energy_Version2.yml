@@ -37,7 +37,8 @@ jobs:
           grep -q "OpenBK7238 Energy Version2" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_EnergyV2_SeedAutoexecIfMissing" src/driver/drv_ione_energy_mqtt.c
           grep -q "IONE_EnergyV2_SeedAutoexecIfMissing" src/user_main.c
-          grep -q "IONE_V2_HandleWebActions" src/driver/drv_ione_energy_mqtt.c
+          grep -q "IONE_ClearEnergyFactory" src/driver/drv_ione_energy_mqtt.c
+          grep -q "HLW8112_ClearEnergyFactory" src/driver/drv_hlw8112.c
           grep -q "IONE_EnergyMqtt_ApplyTopicMacSuffix" src/user_main.c
           grep -q 'energy_v2' Makefile
           test -f OpenBK7238_Energy_Version2/startup/autoexec.txt
