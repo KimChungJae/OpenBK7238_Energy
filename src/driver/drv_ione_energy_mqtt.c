@@ -82,6 +82,9 @@ static float g_ione_month_a;
 static float g_ione_month_b;
 static float g_ione_tuya_base_a;
 static float g_ione_tuya_base_b;
+/* Tuya DP106/108 칩 원시 누적 — 채널 6/10은 baseline 적용 표시값으로 덮어씀 */
+static float g_ione_tuya_raw_a;
+static float g_ione_tuya_raw_b;
 static uint8_t g_ione_clear_busy;
 static uint32_t g_ione_last_clear_ms;
 static int g_ione_channels_private_done;
@@ -108,6 +111,10 @@ static void IONE_ClearEnergyChannelB(void);
 static void IONE_ClearEnergyBoth(void);
 static float IONE_PJ1103C_GetChannel(int ch);
 static float IONE_PJ1103C_ResolveTotalBkWh(void);
+static float IONE_PJ1103C_ResolveRawBkWh(void);
+static void IONE_PJ1103C_UpdateRawFromChannels(void);
+static void IONE_PJ1103C_CaptureTuyaRaw(float *raw_a, float *raw_b);
+static void IONE_PJ1103C_SyncPublicTotals(void);
 #if ENABLE_DRIVER_TUYAMCU
 static void IONE_PJ1103C_PulseTuyaBoolDp(uint8_t dp_id);
 static void IONE_PJ1103C_TryTuyaMeterReset(float *raw_a, float *raw_b);
@@ -205,6 +212,13 @@ static void IONE_ResetMonthEnergy(void) {
 	g_ione_month_b = 0.0f;
 	IONE_SaveDailyEnergy();
 	IONE_SaveMonthEnergyB();
+
+	/* 검침일: Import(Tuya)도 새 청구월 기준 0 — 현재 누적을 baseline으로 (Today/Yesterday는 유지) */
+	IONE_PJ1103C_UpdateRawFromChannels();
+	g_ione_tuya_base_a = g_ione_tuya_raw_a;
+	g_ione_tuya_base_b = IONE_PJ1103C_ResolveRawBkWh();
+	IONE_SaveTuyaBase();
+	IONE_PJ1103C_SyncPublicTotals();
 }
 
 static float IONE_EnergyTotalA(void) {
@@ -262,8 +276,8 @@ static void IONE_ClearEnergyFactory(void) {
 	float raw_a;
 	float raw_b;
 
-	raw_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
-	raw_b = IONE_PJ1103C_ResolveTotalBkWh();
+	/* ch6/10은 baseline 표시값일 수 있음 — g_ione_tuya_raw_* 로 Tuya 칩 원시만 사용 */
+	IONE_PJ1103C_CaptureTuyaRaw(&raw_a, &raw_b);
 #if ENABLE_DRIVER_TUYAMCU
 	IONE_PJ1103C_TryTuyaMeterReset(&raw_a, &raw_b);
 #endif
@@ -272,15 +286,21 @@ static void IONE_ClearEnergyFactory(void) {
 	g_ione_yesterday_b = 0.0f;
 	g_ione_month_a = 0.0f;
 	g_ione_month_b = 0.0f;
+	g_ione_import_b = 0.0f;
 	IONE_ClearEnergyBoth();
 	IONE_SaveMonthEnergyB();
+	IONE_SaveImportB();
 
-	/* Tuya ro DP106/108 — 칩 초기화 실패 시 baseline으로 MQTT Total 0 표시 */
+	/* Tuya ro DP106/108 — 칩 초기화 실패 시 baseline으로 MQTT·Energie A/B 0 표시 */
 	g_ione_tuya_base_a = raw_a;
 	g_ione_tuya_base_b = raw_b;
+	g_ione_tuya_raw_a = raw_a;
+	g_ione_tuya_raw_b = raw_b;
 	IONE_SaveTuyaBase();
+	IONE_PJ1103C_SyncPublicTotals();
+	IONE_SaveDailyEnergy();
 	ADDLOG_INFO(LOG_FEATURE,
-		"clear_energy factory: flash=0, Total baseline A=%.3f B=%.3f (Tuya raw after reset try)",
+		"clear_energy factory: Today/Yesterday/Month/EnergyTotal/Import=0, baseline A=%.3f B=%.3f",
 		raw_a, raw_b);
 }
 
@@ -461,8 +481,7 @@ static void IONE_PJ1103C_TryTuyaMeterReset(float *raw_a, float *raw_b) {
 	CMD_ExecuteCommand("tuyaMcu_sendQueryState", 0);
 	rtos_delay_milliseconds(IONE_PJ_TUYA_RESET_WAIT_MS);
 
-	after_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
-	after_b = IONE_PJ1103C_ResolveTotalBkWh();
+	IONE_PJ1103C_CaptureTuyaRaw(&after_a, &after_b);
 	*raw_a = after_a;
 	*raw_b = after_b;
 
@@ -488,13 +507,45 @@ static float IONE_PJ1103C_ResolveTotalBkWh(void) {
 	return meter_b;
 }
 
-static void IONE_PJ1103C_SyncTotalB(void) {
-	float total_b = IONE_PJ1103C_ResolveTotalBkWh();
-	float meter_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_B);
+/* B raw: DP108·적분 import_b 중 큰 값 (공장 baseline·MQTT Total_B용) */
+static float IONE_PJ1103C_ResolveRawBkWh(void) {
+	if (g_ione_import_b > g_ione_tuya_raw_b + 0.0005f)
+		return g_ione_import_b;
+	return g_ione_tuya_raw_b;
+}
 
-	if (total_b <= meter_b + 0.0005f)
-		return;
-	CHANNEL_SetSmart(IONE_PJ_CH_KWH_B, total_b, CHANNEL_SET_FLAG_SILENT);
+/* Tuya DP106/108 칩 원시 — ch6/10 표시값(baseline 적용)과 구분 */
+static void IONE_PJ1103C_CaptureTuyaRaw(float *raw_a, float *raw_b) {
+	IONE_PJ1103C_UpdateRawFromChannels();
+	if (raw_a)
+		*raw_a = g_ione_tuya_raw_a;
+	if (raw_b)
+		*raw_b = IONE_PJ1103C_ResolveRawBkWh();
+}
+
+/* Tuya UART가 칩 누적을 올릴 때만 raw 갱신 (채널에 baseline 표시값이 있어도 raw 유지) */
+static void IONE_PJ1103C_UpdateRawFromChannels(void) {
+	float ch_a = CHANNEL_GetFinalValue(IONE_PJ_CH_KWH_A);
+	float ch_b = CHANNEL_GetFinalValue(IONE_PJ_CH_KWH_B);
+
+	if (ch_a + 0.0002f >= g_ione_tuya_raw_a)
+		g_ione_tuya_raw_a = ch_a;
+	if (ch_b + 0.0002f >= g_ione_tuya_raw_b)
+		g_ione_tuya_raw_b = ch_b;
+	if (ch_b > g_ione_import_b + 0.0005f)
+		g_ione_import_b = ch_b;
+}
+
+/* ch6/ch10·하단 Energie A/B = Import(Tuya)와 동일한 baseline 표시값 */
+static void IONE_PJ1103C_SyncPublicTotals(void) {
+	float pub_a;
+	float pub_b;
+
+	IONE_PJ1103C_UpdateRawFromChannels();
+	pub_a = IONE_PJ1103C_PublicTotalKwh(g_ione_tuya_raw_a, g_ione_tuya_base_a);
+	pub_b = IONE_PJ1103C_PublicTotalKwh(IONE_PJ1103C_ResolveRawBkWh(), g_ione_tuya_base_b);
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_A, pub_a, CHANNEL_SET_FLAG_SILENT);
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_B, pub_b, CHANNEL_SET_FLAG_SILENT);
 }
 
 /* Version1(HLW8112)와 동일: 1초마다 유효전력(W) 적분 */
@@ -526,7 +577,7 @@ static void IONE_PJ1103C_IntegratePerSecond(void) {
 			IONE_PJ1103C_AddDailyImportKwh(kwh_a, kwh_b);
 	}
 
-	IONE_PJ1103C_SyncTotalB();
+	IONE_PJ1103C_SyncPublicTotals();
 }
 
 static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
@@ -542,11 +593,10 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 	snap->current_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_CUR_B);
 	snap->factor_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_A);
 	snap->factor_b = IONE_PJ1103C_GetChannel(IONE_PJ_CH_PF_B);
-	IONE_PJ1103C_SyncTotalB();
-	snap->total_a = IONE_PJ1103C_PublicTotalKwh(
-		IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A), g_ione_tuya_base_a);
+	IONE_PJ1103C_UpdateRawFromChannels();
+	snap->total_a = IONE_PJ1103C_PublicTotalKwh(g_ione_tuya_raw_a, g_ione_tuya_base_a);
 	snap->total_b = IONE_PJ1103C_PublicTotalKwh(
-		IONE_PJ1103C_ResolveTotalBkWh(), g_ione_tuya_base_b);
+		IONE_PJ1103C_ResolveRawBkWh(), g_ione_tuya_base_b);
 
 	pa = snap->power_a;
 	pb = snap->power_b;
@@ -674,7 +724,7 @@ static commandResult_t CMD_IONE_EnergyTotal(const void *context, const char *cmd
 	val = Tokenizer_GetArgInteger(0);
 	if (val == 0) {
 		IONE_ResetMonthEnergy();
-		ADDLOG_INFO(LOG_FEATURE, "EnergyTotal: month A/B reset (H750 검침일)");
+		ADDLOG_INFO(LOG_FEATURE, "EnergyTotal: month·Import(Tuya) baseline reset (H750 검침일)");
 		IONE_TeleTryPublish();
 		return CMD_RES_OK;
 	}
@@ -701,11 +751,33 @@ static commandResult_t CMD_IONE_Teleperiod(const void *context, const char *cmd,
 	return CMD_RES_OK;
 }
 
+void IONEEnergyMqtt_NotifyTuyaKwhDp(int channel, float kwh) {
+	if (channel == IONE_PJ_CH_KWH_A) {
+		if (kwh + 0.0002f >= g_ione_tuya_raw_a)
+			g_ione_tuya_raw_a = kwh;
+	} else if (channel == IONE_PJ_CH_KWH_B) {
+		if (kwh + 0.0002f >= g_ione_tuya_raw_b)
+			g_ione_tuya_raw_b = kwh;
+		if (kwh > g_ione_import_b + 0.0005f)
+			g_ione_import_b = kwh;
+	} else {
+		return;
+	}
+	IONE_PJ1103C_SyncPublicTotals();
+}
+
 void IONEEnergyMqtt_Init(void) {
 	g_ione_daily_ymd = 0;
 	g_ione_daily_save_cd = 0;
 	IONE_LoadDailyEnergy();
 	IONE_LoadTuyaBase();
+	g_ione_tuya_raw_a = IONE_PJ1103C_GetChannel(IONE_PJ_CH_KWH_A);
+	g_ione_tuya_raw_b = CHANNEL_GetFinalValue(IONE_PJ_CH_KWH_B);
+	if (g_ione_tuya_raw_a < g_ione_tuya_base_a)
+		g_ione_tuya_raw_a = g_ione_tuya_base_a;
+	if (g_ione_tuya_raw_b < g_ione_tuya_base_b)
+		g_ione_tuya_raw_b = g_ione_tuya_base_b;
+	IONE_PJ1103C_SyncPublicTotals();
 	g_ione_tele_tick = g_ione_teleperiod_sec;
 	g_ione_mqtt_was_up = 0;
 	IONE_PJ1103C_BlockPerChannelMqtt();

@@ -37,6 +37,8 @@ void IONE_EnergyMqtt_PublishTeleState(void);
 #if ENABLE_DRIVER_IONE_ENERGY_MQTT
 void IONEEnergyMqtt_Init(void);
 void IONEEnergyMqtt_RunEverySecond(void);
+/* Tuya DP106/108 수신 직후 — ch6/ch10을 baseline 표시값으로 즉시 덮어씀 */
+void IONEEnergyMqtt_NotifyTuyaKwhDp(int channel, float kwh);
 void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState);
 #if ENABLE_LITTLEFS
 void IONE_EnergyV2_SeedAutoexecIfMissing(void);

@@ -27,6 +27,9 @@ https://developer.tuya.com/en/docs/iot/tuyacloudlowpoweruniversalserialaccesspro
 #include <time.h>
 #include "drv_deviceclock.h"
 #include "../rgb2hsv.h"
+#if ENABLE_DRIVER_IONE_ENERGY_MQTT
+#include "drv_ione_energy_mqtt.h"
+#endif
 
 
 #define TUYA_CMD_HEARTBEAT     0x00
@@ -1179,6 +1182,14 @@ void TuyaMCU_ApplyMapping(tuyaMCUMapping_t* mapping, int dpID, int value) {
 	mapping->prevValue = mappedValue;
 
 	CHANNEL_Set(mapping->channel, ((mappedValue + mapping->delta) * mapping->mult), 0);
+#if ENABLE_DRIVER_IONE_ENERGY_MQTT
+	/* Energie A/B(ch6/10): Tuya 원시 수신 직후 baseline 표시로 덮어씀 — 20kWh 잔존 방지 */
+	if (mapping->channel == 6 || mapping->channel == 10) {
+		float kwh = CHANNEL_GetFinalValue(mapping->channel);
+
+		IONEEnergyMqtt_NotifyTuyaKwhDp(mapping->channel, kwh);
+	}
+#endif
 }
 
 bool TuyaMCU_IsChannelUsedByTuyaMCU(int channel) {
