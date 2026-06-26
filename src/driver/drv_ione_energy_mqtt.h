@@ -38,6 +38,9 @@ void IONE_EnergyMqtt_PublishTeleState(void);
 void IONEEnergyMqtt_Init(void);
 void IONEEnergyMqtt_RunEverySecond(void);
 void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState);
+#if ENABLE_LITTLEFS
+void IONE_EnergyV2_SeedAutoexecIfMissing(void);
+#endif
 #endif
 
 /* HLW8112(Version1)에서도 동일 JSON 발행용 */

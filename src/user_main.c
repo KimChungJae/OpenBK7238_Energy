@@ -1323,6 +1323,9 @@ void Main_Init_AfterDelay_Unsafe(bool bStartAutoRunScripts) {
 #else
 		CMD_ExecuteCommand(CFG_GetShortStartupCommand(), COMMAND_FLAG_SOURCE_SCRIPT);
 #endif
+#if (OBK_VARIANT == OBK_VARIANT_IONE_ENERGY_V2) && ENABLE_LITTLEFS
+		IONE_EnergyV2_SeedAutoexecIfMissing();
+#endif
 		CMD_ExecuteCommand("startScript autoexec.bat", COMMAND_FLAG_SOURCE_SCRIPT);
 #if ENABLE_OBK_BERRY
 		CMD_ExecuteCommand("berry import autoexec", COMMAND_FLAG_SOURCE_SCRIPT);

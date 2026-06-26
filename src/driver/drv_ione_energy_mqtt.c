@@ -19,6 +19,9 @@
 #include "../cmnds/cmd_public.h"
 #include "drv_public.h"
 #include "drv_ione_energy_mqtt.h"
+#if ENABLE_LITTLEFS
+#include "../littlefs/our_lfs.h"
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -624,6 +627,88 @@ void IONEEnergyMqtt_AppendInformationToHTTPIndexPage(http_request_t *request, in
 			"NTP 미동기 — Today/Yesterday 자정 리셋 불가</td></tr>");
 	poststr(request, "</table>");
 }
+
+#if ENABLE_LITTLEFS
+/* OTA 시 LFS 영역이 wipe 되면 autoexec.bat이 사라짐 — OpenBK7238_Energy_Version2/startup/autoexec.txt 와 동일 */
+static const char g_ione_v2_default_autoexec[] =
+	"startDriver TuyaMCU\r\n"
+	"startDriver IONEEnergy\r\n"
+	"tuyaMcu_setBaudRate 9600\r\n"
+	"tuyaMcu_defWiFiState 4\r\n"
+	"addRepeatingEvent 10 -1 uartSendHex 55AA0008000007\r\n"
+	"setChannelType 1 Voltage_div10\r\n"
+	"setChannelType 2 Frequency_div100\r\n"
+	"setChannelType 3 Power_div10\r\n"
+	"setChannelType 4 Current_div1000\r\n"
+	"setChannelType 5 PowerFactor_div100\r\n"
+	"setChannelType 6 EnergyTotal_kWh_div100\r\n"
+	"setChannelType 7 Power_div10\r\n"
+	"setChannelType 8 Current_div1000\r\n"
+	"setChannelType 9 PowerFactor_div100\r\n"
+	"setChannelType 10 EnergyTotal_kWh_div100\r\n"
+	"setChannelType 11 ReadOnly\r\n"
+	"setChannelType 12 ReadOnly\r\n"
+	"setChannelType 13 Power_div10\r\n"
+	"linkTuyaMCUOutputToChannel 112 val 1\r\n"
+	"linkTuyaMCUOutputToChannel 111 val 2\r\n"
+	"linkTuyaMCUOutputToChannel 101 val 3\r\n"
+	"linkTuyaMCUOutputToChannel 113 val 4\r\n"
+	"linkTuyaMCUOutputToChannel 110 val 5\r\n"
+	"linkTuyaMCUOutputToChannel 106 val 6\r\n"
+	"linkTuyaMCUOutputToChannel 105 val 7\r\n"
+	"linkTuyaMCUOutputToChannel 114 val 8\r\n"
+	"linkTuyaMCUOutputToChannel 121 val 9\r\n"
+	"linkTuyaMCUOutputToChannel 108 val 10\r\n"
+	"linkTuyaMCUOutputToChannel 102 raw 11\r\n"
+	"linkTuyaMCUOutputToChannel 104 raw 12\r\n"
+	"linkTuyaMCUOutputToChannel 115 val 13\r\n"
+	"setChannelLabel 1 \"Tension\"\r\n"
+	"setChannelLabel 2 \"Frequence\"\r\n"
+	"setChannelLabel 3 \"Puissance A\"\r\n"
+	"setChannelLabel 4 \"Courant A\"\r\n"
+	"setChannelLabel 5 \"PowerFactor A\"\r\n"
+	"setChannelLabel 6 \"Energie A\"\r\n"
+	"setChannelLabel 7 \"Puissance B\"\r\n"
+	"setChannelLabel 8 \"Courant B\"\r\n"
+	"setChannelLabel 9 \"PowerFactor B\"\r\n"
+	"setChannelLabel 10 \"Energie B\"\r\n"
+	"setChannelLabel 11 \"Direction A\"\r\n"
+	"setChannelLabel 12 \"Direction B\"\r\n"
+	"setChannelLabel 13 \"Puissance nette\"\r\n"
+	"teleperiod 10\r\n"
+	"startDriver NTP\r\n"
+	"time_setTZ 9\r\n";
+
+void IONE_EnergyV2_SeedAutoexecIfMissing(void) {
+	byte *existing;
+	int need_seed = 0;
+
+	if (!lfs_present())
+		return;
+
+	existing = LFS_ReadFile("autoexec.bat");
+	if (existing == NULL) {
+		need_seed = 1;
+	} else {
+		if (existing[0] == '\0' || strstr((char *)existing, "startDriver IONEEnergy") == NULL)
+			need_seed = 1;
+		free(existing);
+	}
+
+	if (!need_seed)
+		return;
+
+	if (LFS_WriteFile("autoexec.bat",
+			(const byte *)g_ione_v2_default_autoexec,
+			(int)strlen(g_ione_v2_default_autoexec), false) >= 0) {
+		ADDLOG_INFO(LOG_FEATURE_ENERGYMETER,
+			"IONE V2: OTA/LFS wipe 후 autoexec.bat 기본값 복원");
+	} else {
+		ADDLOG_ERROR(LOG_FEATURE_ENERGYMETER,
+			"IONE V2: autoexec.bat 기본값 기록 실패");
+	}
+}
+#endif /* ENABLE_LITTLEFS */
 #endif /* ENABLE_DRIVER_IONE_ENERGY_MQTT */
 
 static int IONE_TopicBaseMatches(const char *cur, const char *base) {
