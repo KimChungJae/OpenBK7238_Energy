@@ -23,6 +23,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+#include <easyflash.h>
+#endif
+
 #define LOG_FEATURE LOG_FEATURE_ENERGYMETER
 
 extern int g_doNotPublishChannels;
@@ -45,6 +49,9 @@ extern int g_doNotPublishChannels;
 #define IONE_PJ_PWR_TODAY_MIN_W    5.0f
 #define IONE_PJ_TODAY_SANITY_KWH   500.0f
 #define IONE_PJ_YESTERDAY_SANITY_KWH 500.0f
+#define IONE_MONTH_SANITY_KWH         3000.0f
+#define IONE_MONTH_B_ENV               "IONE_MON_B"
+#define IONE_IMP_B_ENV                 "IONE_IMP_B"
 
 static uint16_t g_ione_teleperiod_sec = IONE_PJ_TELE_DEFAULT_SEC;
 static uint16_t g_ione_tele_tick;
@@ -56,9 +63,31 @@ static float g_ione_today_b;
 static float g_ione_yesterday_a;
 static float g_ione_yesterday_b;
 static float g_ione_import_b;
+static float g_ione_month_a;
+static float g_ione_month_b;
+static uint8_t g_ione_clear_busy;
+static uint32_t g_ione_last_clear_ms;
 static int g_ione_channels_private_done;
 
 extern int OTA_GetProgress(void);
+extern int rtos_get_time(void);
+
+static void IONE_SanitizeMonthEnergy(float *kwh);
+static void IONE_LoadMonthEnergyB(void);
+static void IONE_SaveMonthEnergyB(void);
+static void IONE_SaveImportB(void);
+static void IONE_LoadImportB(void);
+static void IONE_ResetMonthEnergy(void);
+static float IONE_EnergyTotalA(void);
+static float IONE_EnergyTotalB(void);
+static int IONE_ClearEnergyTryBegin(void);
+static void IONE_ClearEnergyTryEnd(void);
+static void IONE_ClearEnergyChannelA(void);
+static void IONE_ClearEnergyChannelB(void);
+static void IONE_ClearEnergyBoth(void);
+static commandResult_t CMD_IONE_ClearEnergy(const void *context, const char *cmd, const char *args, int cmdFlags);
+static commandResult_t CMD_IONE_SetEnergyStat(const void *context, const char *cmd, const char *args, int cmdFlags);
+static commandResult_t CMD_IONE_EnergyTotal(const void *context, const char *cmd, const char *args, int cmdFlags);
 
 static int IONE_YmdValid(uint32_t ymd) {
 	uint16_t y = (uint16_t)(ymd / 10000u);
@@ -81,6 +110,103 @@ static void IONE_SanitizeDailyEnergy(void) {
 		g_ione_yesterday_b = 0.0f;
 }
 
+static void IONE_SanitizeMonthEnergy(float *kwh) {
+	if (*kwh < 0.0f || *kwh > IONE_MONTH_SANITY_KWH)
+		*kwh = 0.0f;
+}
+
+static void IONE_LoadMonthEnergyB(void) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	size_t len = 0;
+
+	g_ione_month_b = 0.0f;
+	ef_get_env_blob(IONE_MONTH_B_ENV, &g_ione_month_b, sizeof(g_ione_month_b), &len);
+	if (len != sizeof(g_ione_month_b))
+		g_ione_month_b = 0.0f;
+	IONE_SanitizeMonthEnergy(&g_ione_month_b);
+#endif
+}
+
+static void IONE_SaveMonthEnergyB(void) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	ef_set_env_blob(IONE_MONTH_B_ENV, &g_ione_month_b, sizeof(g_ione_month_b));
+#endif
+}
+
+static void IONE_LoadImportB(void) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	size_t len = 0;
+	float stored = 0.0f;
+
+	ef_get_env_blob(IONE_IMP_B_ENV, &stored, sizeof(stored), &len);
+	if (len == sizeof(stored) && stored >= 0.0f && stored <= 999999.0f)
+		g_ione_import_b = stored;
+#endif
+}
+
+static void IONE_SaveImportB(void) {
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	ef_set_env_blob(IONE_IMP_B_ENV, &g_ione_import_b, sizeof(g_ione_import_b));
+#endif
+}
+
+static void IONE_ResetMonthEnergy(void) {
+	g_ione_month_a = 0.0f;
+	g_ione_month_b = 0.0f;
+	IONE_SaveDailyEnergy();
+	IONE_SaveMonthEnergyB();
+}
+
+static float IONE_EnergyTotalA(void) {
+	return g_ione_month_a + g_ione_yesterday_a + g_ione_today_a;
+}
+
+static float IONE_EnergyTotalB(void) {
+	return g_ione_month_b + g_ione_yesterday_b + g_ione_today_b;
+}
+
+static int IONE_ClearEnergyTryBegin(void) {
+	uint32_t now = (uint32_t)rtos_get_time();
+
+	if (g_ione_clear_busy) {
+		ADDLOG_WARN(LOG_FEATURE, "clear_energy: 처리 중 — 잠시 후 다시");
+		return 0;
+	}
+	if (g_ione_last_clear_ms != 0U && (now - g_ione_last_clear_ms) < 3000U) {
+		ADDLOG_WARN(LOG_FEATURE, "clear_energy: 3초 간격 필요 (all 사용 권장)");
+		return 0;
+	}
+	g_ione_clear_busy = 1;
+	return 1;
+}
+
+static void IONE_ClearEnergyTryEnd(void) {
+	g_ione_last_clear_ms = (uint32_t)rtos_get_time();
+	g_ione_clear_busy = 0;
+}
+
+static void IONE_ClearEnergyChannelA(void) {
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_A, 0.0f, CHANNEL_SET_FLAG_SILENT);
+	g_ione_today_a = 0.0f;
+	IONE_SaveDailyEnergy();
+	ADDLOG_INFO(LOG_FEATURE, "clear_energy: channel_a Import/Today=0");
+}
+
+static void IONE_ClearEnergyChannelB(void) {
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_B, 0.0f, CHANNEL_SET_FLAG_SILENT);
+	g_ione_import_b = 0.0f;
+	g_ione_today_b = 0.0f;
+	IONE_SaveDailyEnergy();
+	IONE_SaveImportB();
+	ADDLOG_INFO(LOG_FEATURE, "clear_energy: channel_b Import/Today=0");
+}
+
+static void IONE_ClearEnergyBoth(void) {
+	IONE_ClearEnergyChannelA();
+	IONE_ClearEnergyChannelB();
+	ADDLOG_INFO(LOG_FEATURE, "clear_energy: A·B Import/Today=0 (flash)");
+}
+
 static void IONE_LoadDailyEnergy(void) {
 	ENERGY_METERING_DATA em;
 	uint32_t stored;
@@ -91,14 +217,36 @@ static void IONE_LoadDailyEnergy(void) {
 	g_ione_yesterday_a = em.YesterdayConsumption;
 	g_ione_today_b = em.ConsumptionHistory[0];
 	g_ione_yesterday_b = em.ConsumptionHistory[1];
-	g_ione_import_b = em.TotalConsumption;
 	IONE_SanitizeDailyEnergy();
+#if PLATFORM_BEKEN_NEW && PLATFORM_BK7238
+	{
+		size_t len_mon_b = 0;
+		size_t len_imp_b = 0;
+		float probe = 0.0f;
+
+		ef_get_env_blob(IONE_MONTH_B_ENV, &probe, sizeof(probe), &len_mon_b);
+		ef_get_env_blob(IONE_IMP_B_ENV, &probe, sizeof(probe), &len_imp_b);
+		if (len_mon_b == 0 && len_imp_b == 0) {
+			/* 구버전: TotalConsumption = Import_B */
+			g_ione_import_b = em.TotalConsumption;
+			g_ione_month_a = 0.0f;
+		} else {
+			g_ione_month_a = em.TotalConsumption;
+			IONE_LoadImportB();
+		}
+	}
+#else
+	g_ione_import_b = em.TotalConsumption;
+	g_ione_month_a = 0.0f;
+#endif
+	IONE_SanitizeMonthEnergy(&g_ione_month_a);
 	if (g_ione_import_b < 0.0f || g_ione_import_b > 999999.0f)
 		g_ione_import_b = 0.0f;
+	IONE_LoadMonthEnergyB();
 	stored = (uint32_t)em.ConsumptionResetTime;
 	g_ione_daily_ymd = IONE_YmdValid(stored) ? stored : 0u;
-	ADDLOG_INFO(LOG_FEATURE, "Version2: flash Today_A=%.3f Yesterday_A=%.3f Import_B=%.3f ymd=%u",
-		g_ione_today_a, g_ione_yesterday_a, g_ione_import_b, (unsigned)g_ione_daily_ymd);
+	ADDLOG_INFO(LOG_FEATURE, "Version2: flash Today_A=%.3f Yesterday_A=%.3f Month_A=%.3f Import_B=%.3f ymd=%u",
+		g_ione_today_a, g_ione_yesterday_a, g_ione_month_a, g_ione_import_b, (unsigned)g_ione_daily_ymd);
 }
 
 static void IONE_SaveDailyEnergy(void) {
@@ -116,7 +264,7 @@ static void IONE_SaveDailyEnergy(void) {
 	em.YesterdayConsumption = g_ione_yesterday_a;
 	em.ConsumptionHistory[0] = g_ione_today_b;
 	em.ConsumptionHistory[1] = g_ione_yesterday_b;
-	em.TotalConsumption = g_ione_import_b;
+	em.TotalConsumption = g_ione_month_a;
 	em.ConsumptionResetTime = (time_t)g_ione_daily_ymd;
 	em.actual_mday = (char)(g_ione_daily_ymd > 0 ? (g_ione_daily_ymd % 100u) : 0);
 	HAL_SetEnergyMeterStatus(&em);
@@ -161,14 +309,21 @@ static void IONE_PJ1103C_CheckDailyRollover(void) {
 	}
 	if (g_ione_daily_ymd == ymd)
 		return;
+	g_ione_month_a += g_ione_yesterday_a;
+	g_ione_month_b += g_ione_yesterday_b;
+	IONE_SanitizeMonthEnergy(&g_ione_month_a);
+	IONE_SanitizeMonthEnergy(&g_ione_month_b);
 	g_ione_yesterday_a = g_ione_today_a;
 	g_ione_yesterday_b = g_ione_today_b;
 	g_ione_today_a = 0.0f;
 	g_ione_today_b = 0.0f;
 	g_ione_daily_ymd = ymd;
 	IONE_SaveDailyEnergy();
-	ADDLOG_INFO(LOG_FEATURE, "Version2: 일별 리셋 %u Yesterday_A=%.3f Yesterday_B=%.3f",
-		(unsigned)ymd, g_ione_yesterday_a, g_ione_yesterday_b);
+	IONE_SaveMonthEnergyB();
+	IONE_SaveImportB();
+	ADDLOG_INFO(LOG_FEATURE, "Version2: 일별 리셋 %u Yesterday_A=%.3f Yesterday_B=%.3f Month_A=%.3f Month_B=%.3f",
+		(unsigned)ymd, g_ione_yesterday_a, g_ione_yesterday_b,
+		g_ione_month_a, g_ione_month_b);
 }
 
 static void IONE_PJ1103C_AddDailyImportKwh(float kwh_a, float kwh_b) {
@@ -185,6 +340,7 @@ static void IONE_PJ1103C_AddDailyImportKwh(float kwh_a, float kwh_b) {
 	if (g_ione_daily_save_cd >= 30) {
 		g_ione_daily_save_cd = 0;
 		IONE_SaveDailyEnergy();
+		IONE_SaveImportB();
 	}
 }
 
@@ -233,6 +389,7 @@ static void IONE_PJ1103C_IntegratePerSecond(void) {
 		if (g_ione_daily_save_cd >= 30) {
 			g_ione_daily_save_cd = 0;
 			IONE_SaveDailyEnergy();
+			IONE_SaveImportB();
 		}
 	}
 
@@ -268,8 +425,8 @@ static void IONE_PJ1103C_ReadSnapshot(ione_energy_mqtt_snapshot_t *snap) {
 
 	snap->export_a = 0.0f;
 	snap->export_b = 0.0f;
-	snap->energy_total_a = snap->total_a;
-	snap->energy_total_b = snap->total_b;
+	snap->energy_total_a = IONE_EnergyTotalA();
+	snap->energy_total_b = IONE_EnergyTotalB();
 	snap->today_a = g_ione_today_a;
 	snap->today_b = g_ione_today_b;
 	snap->yesterday_a = g_ione_yesterday_a;
@@ -296,6 +453,81 @@ static void IONE_TeleTryPublish(void) {
 	IONE_EnergyMqtt_PublishTeleState();
 	IONE_PJ1103C_ReadSnapshot(&snap);
 	IONE_EnergyMqtt_PublishTeleSensor(&snap);
+}
+
+static commandResult_t CMD_IONE_ClearEnergy(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	char *channel;
+
+	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
+	if (Tokenizer_CheckArgsCountAndPrintWarning(cmd, 1))
+		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
+	channel = Tokenizer_GetArg(0);
+	if (!strcmp("all", channel) || !strcmp("both", channel) || !strcmp("channel_ab", channel)) {
+		if (!IONE_ClearEnergyTryBegin())
+			return CMD_RES_BAD_ARGUMENT;
+		IONE_ClearEnergyBoth();
+		IONE_ClearEnergyTryEnd();
+		IONE_TeleTryPublish();
+		return CMD_RES_OK;
+	}
+	if (!strcmp("channel_a", channel) || !strcmp("a", channel)) {
+		IONE_ClearEnergyChannelA();
+		IONE_TeleTryPublish();
+		return CMD_RES_OK;
+	}
+	if (!strcmp("channel_b", channel) || !strcmp("b", channel)) {
+		IONE_ClearEnergyChannelB();
+		IONE_TeleTryPublish();
+		return CMD_RES_OK;
+	}
+	ADDLOG_WARN(LOG_FEATURE, "clear_energy: channel_a|channel_b|all");
+	return CMD_RES_BAD_ARGUMENT;
+}
+
+static commandResult_t CMD_IONE_SetEnergyStat(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	float imp_a, exp_a, imp_b, exp_b;
+
+	Tokenizer_TokenizeString(args, TOKENIZER_ALLOW_QUOTES);
+	if (Tokenizer_CheckArgsCountAndPrintWarning(cmd, 4))
+		return CMD_RES_NOT_ENOUGH_ARGUMENTS;
+	imp_a = Tokenizer_GetArgFloat(0);
+	exp_a = Tokenizer_GetArgFloat(1);
+	imp_b = Tokenizer_GetArgFloat(2);
+	exp_b = Tokenizer_GetArgFloat(3);
+	(void)exp_a;
+	(void)exp_b;
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_A, imp_a, CHANNEL_SET_FLAG_SILENT);
+	CHANNEL_SetSmart(IONE_PJ_CH_KWH_B, imp_b, CHANNEL_SET_FLAG_SILENT);
+	g_ione_import_b = imp_b;
+	if (imp_a == 0.0f)
+		g_ione_today_a = 0.0f;
+	if (imp_b == 0.0f)
+		g_ione_today_b = 0.0f;
+	IONE_SaveDailyEnergy();
+	IONE_SaveImportB();
+	ADDLOG_INFO(LOG_FEATURE, "HLW8112_SetEnergyStat: A=%.3f B=%.3f kWh", imp_a, imp_b);
+	IONE_TeleTryPublish();
+	return CMD_RES_OK;
+}
+
+static commandResult_t CMD_IONE_EnergyTotal(const void *context, const char *cmd, const char *args, int cmdFlags) {
+	int val;
+
+	Tokenizer_TokenizeString(args, 0);
+	if (Tokenizer_GetArg(0)[0] == 0) {
+		ADDLOG_INFO(LOG_FEATURE, "EnergyTotal A=%.3f B=%.3f kWh",
+			IONE_EnergyTotalA(), IONE_EnergyTotalB());
+		return CMD_RES_OK;
+	}
+	val = Tokenizer_GetArgInteger(0);
+	if (val == 0) {
+		IONE_ResetMonthEnergy();
+		ADDLOG_INFO(LOG_FEATURE, "EnergyTotal: month A/B reset (H750 검침일)");
+		IONE_TeleTryPublish();
+		return CMD_RES_OK;
+	}
+	ADDLOG_WARN(LOG_FEATURE, "EnergyTotal: 0 only (month reset)");
+	return CMD_RES_BAD_ARGUMENT;
 }
 
 static commandResult_t CMD_IONE_Teleperiod(const void *context, const char *cmd, const char *args, int cmdFlags) {
@@ -327,6 +559,9 @@ void IONEEnergyMqtt_Init(void) {
 	if (!DRV_IsRunning("TuyaMCU"))
 		DRV_StartDriver("TuyaMCU");
 	CMD_RegisterCommand("teleperiod", CMD_IONE_Teleperiod, NULL);
+	CMD_RegisterCommand("clear_energy", CMD_IONE_ClearEnergy, NULL);
+	CMD_RegisterCommand("HLW8112_SetEnergyStat", CMD_IONE_SetEnergyStat, NULL);
+	CMD_RegisterCommand("EnergyTotal", CMD_IONE_EnergyTotal, NULL);
 	ADDLOG_INFO(LOG_FEATURE, "OpenBK7238 Energy Version2 (PJ-1103C TuyaMCU) MQTT ready");
 }
 
